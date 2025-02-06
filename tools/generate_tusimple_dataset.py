@@ -17,6 +17,7 @@ import shutil
 
 import cv2
 import numpy as np
+import random
 
 
 def init_args():
@@ -145,14 +146,20 @@ def process_tusimple_dataset(src_dir):
     os.makedirs(traing_folder_path, exist_ok=True)
     os.makedirs(testing_folder_path, exist_ok=True)
 
-    for json_label_path in glob.glob('{:s}/label*.json'.format(src_dir)):
+
+    print("Copying json label files...")
+    for json_label_path in glob.glob('{:s}train_set/label*.json'.format(src_dir)):
+        print("json label file: ", json_label_path)
         json_label_name = ops.split(json_label_path)[1]
 
+        print("Copying json label file: ", json_label_path)
         shutil.copyfile(json_label_path, ops.join(traing_folder_path, json_label_name))
 
-    for json_label_path in glob.glob('{:s}/test*.json'.format(src_dir)):
+    print("Copying testing json label files...")
+    for json_label_path in glob.glob('{:s}test_set/test*.json'.format(src_dir)):
         json_label_name = ops.split(json_label_path)[1]
 
+        print("Copying json label file: ", json_label_path)
         shutil.copyfile(json_label_path, ops.join(testing_folder_path, json_label_name))
 
     gt_image_dir = ops.join(traing_folder_path, 'gt_image')
@@ -163,15 +170,69 @@ def process_tusimple_dataset(src_dir):
     os.makedirs(gt_binary_dir, exist_ok=True)
     os.makedirs(gt_instance_dir, exist_ok=True)
 
+    print("Processing json label files for traing_folder_path...")
     for json_label_path in glob.glob('{:s}/*.json'.format(traing_folder_path)):
-        process_json_file(json_label_path, src_dir, gt_image_dir, gt_binary_dir, gt_instance_dir)
+       process_json_file(json_label_path, src_dir + '/train_set', gt_image_dir, gt_binary_dir, gt_instance_dir)
 
+    print("Generating train sample...")
     gen_train_sample(src_dir, gt_binary_dir, gt_instance_dir, gt_image_dir)
+    print("Done")
 
     return
 
 
+def split_train_val_dataset(src_dir, val_ratio=0.1):
+    train_txt = ops.join(src_dir, 'training', 'train.txt')
+    val_txt = ops.join(src_dir, 'training', 'val.txt')
+
+    original_train_txt = ops.join(src_dir, 'training', 'original_train.txt')
+
+    # verify if the original_train_txt is valid
+    if not ops.exists(original_train_txt):
+        print("{original_train_txt} not found")
+        return
+    
+    with open(original_train_txt, 'r') as file:
+        lines = file.readlines()
+
+    # shuffle the lines
+    random.shuffle(lines)
+
+    # split the lines into train and val
+    train_lines = lines[:int(len(lines) * (1 - val_ratio))]
+    val_lines = lines[int(len(lines) * (1 - val_ratio)):]
+
+    with open(train_txt, 'w') as file:
+        file.writelines(train_lines)
+
+    with open(val_txt, 'w') as file:
+        file.writelines(val_lines)
+
+    print("Split train and val dataset done")
+    # output the number of lines in train and val
+    print("Number of lines in original_train.txt: ", len(lines))
+    print("Number of lines in train.txt: ", len(train_lines))
+    print("Number of lines in val.txt: ", len(val_lines))
+
 if __name__ == '__main__':
+    # Command line in the container: python ./tools/generate_tusimple_dataset.py --src_dir /app/data/TUSimple/
     args = init_args()
 
-    process_tusimple_dataset(args.src_dir)
+    original_train_txt = ops.join(args.src_dir, 'training', 'original_train.txt')
+    train_txt = ops.join(args.src_dir, 'training', 'train.txt')
+    val_txt = ops.join(args.src_dir, 'training', 'val.txt')
+
+    # process the tusimple dataset
+    if False:
+        os.remove(original_train_txt)
+        os.remove(train_txt)
+        os.remove(val_txt)
+        process_tusimple_dataset(args.src_dir)
+
+    # rename the train.txt to original_train.txt
+    if ops.exists(train_txt) and not ops.exists(original_train_txt):
+        os.rename(train_txt, original_train_txt)
+
+        split_train_val_dataset(args.src_dir, val_ratio=0.1)
+
+
