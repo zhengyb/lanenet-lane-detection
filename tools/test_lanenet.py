@@ -144,9 +144,6 @@ def test_lanenet(image_path, weights_path, with_lane_fit=True):
             instance_seg_image[0][:, :, i] = minmax_scale(instance_seg_image[0][:, :, i])
         embedding_image = np.array(instance_seg_image[0], np.uint8)
 
-        # Ensure the output directory exists
-        os.makedirs(output_dir, exist_ok=True)
-
         plt.figure('mask_image')
         plt.imshow(mask_image[:, :, (2, 1, 0)])
         plt.figure('src_image')
@@ -157,8 +154,42 @@ def test_lanenet(image_path, weights_path, with_lane_fit=True):
         plt.imshow(binary_seg_image[0] * 255, cmap='gray')
         plt.show()
 
+        # Ensure the output directory exists
+        os.makedirs(output_dir, exist_ok=True)
+        # Create a figure with 2 rows and 2 columns of subplots
+        fig, axs = plt.subplots(2, 2, figsize=(12, 8))
+
+        # Plot the mask image in the top-left subplot
+        axs[0, 0].imshow(mask_image[:, :, (2, 1, 0)])
+        axs[0, 0].set_title('mask_image')
+        axs[0, 0].axis('off')
+
+        # Plot the source image in the top-right subplot
+        axs[0, 1].imshow(image_vis[:, :, (2, 1, 0)])
+        axs[0, 1].set_title('src_image')
+        axs[0, 1].axis('off')
+
+        # Plot the instance image in the bottom-left subplot
+        axs[1, 0].imshow(embedding_image[:, :, (2, 1, 0)])
+        axs[1, 0].set_title('instance_image')
+        axs[1, 0].axis('off')
+
+        # Plot the binary segmentation image in the bottom-right subplot
+        axs[1, 1].imshow(binary_seg_image[0] * 255, cmap='gray')
+        axs[1, 1].set_title('binary_image')
+        axs[1, 1].axis('off')
+
+        # Adjust layout to prevent overlapping titles or labels
+        plt.tight_layout()
+
         # Save the composite figure to the specified file
         plt.savefig(output_dir + 'output.jpg', dpi=300)
+
+        # Optionally, close the figure to free memory
+        plt.close(fig)
+
+        # Save the composite figure to the specified file
+        #plt.savefig(output_dir + 'output.jpg', dpi=300)
 
     sess.close()
 
