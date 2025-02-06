@@ -28,6 +28,9 @@ LOG = init_logger.get_logger(log_file_name_prefix='lanenet_test')
 
 output_dir="/app/test/"
 
+# Command line in the container:
+# python tools/test_lanenet.py --image_path /app/data/TUSimple/test_set/clips/00000.jpg --weights_path /app/weights/tusimple_lanenet/tusimple_lanenet.ckpt --with_lane_fit True
+
 def init_args():
     """
 

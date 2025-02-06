@@ -28,6 +28,9 @@ CFG = parse_config_utils.lanenet_cfg
 LOG = init_logger.get_logger(log_file_name_prefix='lanenet_eval')
 
 
+# Command line in the container:
+# python tools/evaluate_lanenet_on_tusimple.py --image_dir /app/data/TUSimple/test_set/clips --save_dir /app/data/TUSimple/test_set/teest_output --weights_path /app/weights/tusimple_lanenet/tusimple_lanenet.ckpt
+
 def init_args():
     """
 
