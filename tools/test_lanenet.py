@@ -11,6 +11,7 @@ test LaneNet model on single image
 import argparse
 import os.path as ops
 import time
+import os
 
 import cv2
 import matplotlib.pyplot as plt
@@ -25,6 +26,7 @@ from local_utils.log_util import init_logger
 CFG = parse_config_utils.lanenet_cfg
 LOG = init_logger.get_logger(log_file_name_prefix='lanenet_test')
 
+output_dir="/app/test/"
 
 def init_args():
     """
@@ -142,6 +144,9 @@ def test_lanenet(image_path, weights_path, with_lane_fit=True):
             instance_seg_image[0][:, :, i] = minmax_scale(instance_seg_image[0][:, :, i])
         embedding_image = np.array(instance_seg_image[0], np.uint8)
 
+        # Ensure the output directory exists
+        os.makedirs(output_dir, exist_ok=True)
+
         plt.figure('mask_image')
         plt.imshow(mask_image[:, :, (2, 1, 0)])
         plt.figure('src_image')
@@ -151,6 +156,9 @@ def test_lanenet(image_path, weights_path, with_lane_fit=True):
         plt.figure('binary_image')
         plt.imshow(binary_seg_image[0] * 255, cmap='gray')
         plt.show()
+
+        # Save the composite figure to the specified file
+        plt.savefig(output_dir + 'output.jpg', dpi=300)
 
     sess.close()
 
