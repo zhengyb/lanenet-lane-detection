@@ -3,5 +3,11 @@
 # log
 log/
 
+# .venv
+.venv/
+
+# tusimple dataset
+data/TUSimple/
+
 # python cache
 *__pycache__*
