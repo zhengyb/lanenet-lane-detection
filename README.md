@@ -86,6 +86,12 @@ Use the script here to generate the tensorflow records file
 ```
 python tools/make_tusimple_tfrecords.py 
 ```
+#### Monitor the training process using tensorboard
+
+``` in the container
+tensorboard --logdir=/app/tboard/
+
+```
 
 #### Train model
 In my experiment the training epochs are 80010, batch size is 4, initialized learning rate is 0.001 and use polynomial 

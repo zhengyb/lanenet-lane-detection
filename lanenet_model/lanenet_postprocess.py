@@ -311,25 +311,33 @@ class LaneNetPostProcessor(object):
         :param data_source:
         :return:
         """
+
+
         # convert binary_seg_result
         binary_seg_result = np.array(binary_seg_result * 255, dtype=np.uint8)
 
         # apply image morphology operation to fill in the hold and reduce the small area
+        # 形态学操作，填充孔洞并减少小面积
         morphological_ret = _morphological_process(binary_seg_result, kernel_size=5)
 
+        # 连通区域分析
         connect_components_analysis_ret = _connect_components_analysis(image=morphological_ret)
 
         labels = connect_components_analysis_ret[1]
         stats = connect_components_analysis_ret[2]
+        # 删除面积小于min_area_threshold的连通区域
         for index, stat in enumerate(stats):
             if stat[4] <= min_area_threshold:
                 idx = np.where(labels == index)
                 morphological_ret[idx] = 0
 
+
         # apply embedding features cluster
+        # mask_image: 不同车道线用不同颜色标记的掩码图像
+        # lane_coords: 每条车道线的像素坐标列表, resized coordinates
         mask_image, lane_coords = self._cluster.apply_lane_feats_cluster(
-            binary_seg_result=morphological_ret,
-            instance_seg_result=instance_seg_result
+            binary_seg_result=morphological_ret, # 二值分割结果
+            instance_seg_result=instance_seg_result # 实例分割结果
         )
 
         if mask_image is None:
@@ -344,7 +352,15 @@ class LaneNetPostProcessor(object):
                 dsize=(source_image.shape[1], source_image.shape[0]),
                 interpolation=cv2.INTER_NEAREST
             )
-            source_image = cv2.addWeighted(source_image, 0.6, tmp_mask, 0.4, 0.0, dst=source_image)
+            # source_image = cv2.addWeighted(source_image, 0.6, tmp_mask, 0.4, 0.0, dst=source_image)
+            source_image = cv2.addWeighted(
+                                source_image,  # src1: 原始图像
+                                0.6,          # alpha: 原始图像的权重
+                                tmp_mask,     # src2: 车道线掩码图像
+                                0.4,          # beta: 掩码图像的权重
+                                0.0,          # gamma: 额外的亮度调节值
+                                dst=source_image  # dst: 输出图像存储位置
+                            )
             return {
                 'mask_image': mask_image,
                 'fit_params': None,
@@ -356,10 +372,14 @@ class LaneNetPostProcessor(object):
         src_lane_pts = []  # lane pts every single lane
         for lane_index, coords in enumerate(lane_coords):
             if data_source == 'tusimple':
+                #将检测到的车道线坐标从模型输出尺寸(256, 512)还原到原始图像尺寸(720, 1280). 
+                # The input image size should be (720, 1280)!!!
                 tmp_mask = np.zeros(shape=(720, 1280), dtype=np.uint8)
                 tmp_mask[tuple((np.int_(coords[:, 1] * 720 / 256), np.int_(coords[:, 0] * 1280 / 512)))] = 255
             else:
                 raise ValueError('Wrong data source now only support tusimple')
+            
+            # 将普通视角的图像转换为鸟瞰图（IPM, Inverse Perspective Mapping）
             tmp_ipm_mask = cv2.remap(
                 tmp_mask,
                 self._remap_to_ipm_x,
@@ -369,6 +389,7 @@ class LaneNetPostProcessor(object):
             nonzero_y = np.array(tmp_ipm_mask.nonzero()[0])
             nonzero_x = np.array(tmp_ipm_mask.nonzero()[1])
 
+            # 使用二次多项式对车道线点进行拟合, in the IPM space
             fit_param = np.polyfit(nonzero_y, nonzero_x, 2)
             fit_params.append(fit_param)
 
@@ -377,6 +398,9 @@ class LaneNetPostProcessor(object):
             fit_x = fit_param[0] * plot_y ** 2 + fit_param[1] * plot_y + fit_param[2]
             # fit_x = fit_param[0] * plot_y ** 3 + fit_param[1] * plot_y ** 2 + fit_param[2] * plot_y + fit_param[3]
 
+            # 这个过程的目的是将鸟瞰图中拟合出的车道线点重新映射回原始图像视角，
+            # 这样就可以在原始图像上正确显示检测到的车道线。这种转换是必要的，
+            # 因为我们需要在原始视角下展示结果，而不是鸟瞰图视角。
             lane_pts = []
             for index in range(0, plot_y.shape[0], 5):
                 src_x = self._remap_to_ipm_x[
@@ -435,7 +459,7 @@ class LaneNetPostProcessor(object):
                 cv2.circle(source_image, (int(interpolation_src_pt_x),
                                           int(interpolation_src_pt_y)), 5, lane_color, -1)
         ret = {
-            'mask_image': mask_image,
+            'mask_image': mask_image, # 不同车道线用不同颜色标记的掩码图像
             'fit_params': fit_params,
             'source_image': source_image,
         }

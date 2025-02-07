@@ -87,7 +87,9 @@ def test_lanenet(image_path, weights_path, with_lane_fit=True):
     t_start = time.time()
     image = cv2.imread(image_path, cv2.IMREAD_COLOR)
     image_vis = image
+    # 将图像缩放为512x256. Be careful, the resized sizes are hard-coded in many places in the project.
     image = cv2.resize(image, (512, 256), interpolation=cv2.INTER_LINEAR)
+    # 标准化到[-1, 1]范围
     image = image / 127.5 - 1.0
     LOG.info('Image load complete, cost time: {:.5f}s'.format(time.time() - t_start))
 
@@ -119,6 +121,7 @@ def test_lanenet(image_path, weights_path, with_lane_fit=True):
         saver.restore(sess=sess, save_path=weights_path)
 
         t_start = time.time()
+        # 运行500次，计算平均时间
         loop_times = 500
         for i in range(loop_times):
             binary_seg_image, instance_seg_image = sess.run(
@@ -132,11 +135,12 @@ def test_lanenet(image_path, weights_path, with_lane_fit=True):
         postprocess_result = postprocessor.postprocess(
             binary_seg_result=binary_seg_image[0],
             instance_seg_result=instance_seg_image[0],
-            source_image=image_vis,
+            source_image=image_vis, # 源图像
             with_lane_fit=with_lane_fit,
-            data_source='tusimple'
+            data_source='tusimple' # 数据集, Why?
         )
         mask_image = postprocess_result['mask_image']
+        source_image_with_lane = postprocess_result['source_image']
         if with_lane_fit:
             lane_params = postprocess_result['fit_params']
             LOG.info('Model have fitted {:d} lanes'.format(len(lane_params)))
@@ -186,7 +190,7 @@ def test_lanenet(image_path, weights_path, with_lane_fit=True):
         plt.tight_layout()
 
         # Save the composite figure to the specified file
-        plt.savefig(output_dir + 'output.jpg', dpi=300)
+        plt.savefig(output_dir + 'output.jpg', dpi=600)
 
         # Optionally, close the figure to free memory
         plt.close(fig)
