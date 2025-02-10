@@ -109,21 +109,26 @@ class LaneNetTusimpleMultiTrainer(object):
 
         # define learning rate
         with tf.variable_scope('learning_rate'):
-            self._global_step = tf.Variable(1.0, dtype=tf.float32, trainable=False, name='global_step')
-            self._val_global_step = tf.Variable(1.0, dtype=tf.float32, trainable=False, name='val_global_step')
-            self._val_global_step_update = tf.assign_add(self._val_global_step, 1.0)
+            #self._global_step = tf.Variable(1.0, dtype=tf.float32, trainable=False, name='global_step')
+            self._global_step = tf.Variable(1, dtype=tf.int64, trainable=False, name='global_step')
+
+            self._val_global_step = tf.Variable(1, dtype=tf.int64, trainable=False, name='val_global_step')
+            self._val_global_step_update = tf.compat.v1.assign_add(self._val_global_step, 1)
             warmup_steps = tf.constant(
                 self._warmup_epoches * self._steps_per_epoch, dtype=tf.float32, name='warmup_steps'
             )
             train_steps = tf.constant(
                 self._train_epoch_nums * self._steps_per_epoch, dtype=tf.float32, name='train_steps'
             )
+            # 在条件判断前转换 global_step 为 float32
+            global_step_float = tf.cast(self._global_step, dtype=tf.float32)
+
             self._learn_rate = tf.cond(
-                pred=self._global_step < warmup_steps,
+                pred=global_step_float < warmup_steps,
                 true_fn=lambda: self._compute_warmup_lr(warmup_steps=warmup_steps, name='warmup_lr'),
                 false_fn=lambda: tf.train.polynomial_decay(
                     learning_rate=self._init_learning_rate,
-                    global_step=self._global_step,
+                    global_step=global_step_float,
                     decay_steps=train_steps,
                     end_learning_rate=0.000000001,
                     power=self._lr_polynimal_decay_power)
@@ -194,6 +199,8 @@ class LaneNetTusimpleMultiTrainer(object):
             )
             # define saver
             self._loader = tf.train.Saver(tf.moving_average_variables())
+            # 一个用于恢复全局步数
+            self._global_step_loader = tf.train.Saver([self._global_step])
 
         # group all the op needed for training
         batchnorm_updates_op = tf.group(*batchnorm_updates)
@@ -332,8 +339,13 @@ class LaneNetTusimpleMultiTrainer(object):
         :return:
         """
         with tf.variable_scope(name_or_scope=name):
-            factor = tf.math.pow(self._init_learning_rate / self._warmup_init_learning_rate, 1.0 / warmup_steps)
-            warmup_lr = self._warmup_init_learning_rate * tf.math.pow(factor, self._global_step)
+            # 将 warmup_steps 转换为浮点数
+            #warmup_steps_float = tf.cast(warmup_steps, dtype=tf.float32)
+            # 将 global_step 转换为浮点数
+            global_step_float = tf.cast(self._global_step, dtype=tf.float32)
+            factor = tf.math.pow(self._init_learning_rate / self._warmup_init_learning_rate, 
+                                 1.0 / warmup_steps )
+            warmup_lr = self._warmup_init_learning_rate * tf.math.pow(factor, global_step_float)
         return warmup_lr
 
     def _compute_net_gradients(self, images, binary_labels, instance_labels, optimizer=None,
@@ -374,15 +386,31 @@ class LaneNetTusimpleMultiTrainer(object):
 
         :return:
         """
-        self._sess.run(tf.global_variables_initializer())
-        self._sess.run(tf.local_variables_initializer())
+        #self._sess.run(tf.global_variables_initializer())
+        #self._sess.run(tf.local_variables_initializer())
+        self._sess.run(tf.compat.v1.global_variables_initializer())
+        self._sess.run(tf.compat.v1.local_variables_initializer())
+
         if self._cfg.TRAIN.RESTORE_FROM_SNAPSHOT.ENABLE:
             try:
-                LOG.info('=> Restoring weights from: {:s} ... '.format(self._initial_weight))
+                # LOG.info('=> Restoring weights from: {:s} ... '.format(self._initial_weight))
                 self._loader.restore(self._sess, self._initial_weight)
-                global_step_value = self._sess.run(self._global_step)
+                #
+                # 再恢复全局步数
+                self._global_step_loader.restore(self._sess, self._initial_weight)
+                global_step_value = self._sess.run(self._global_step) + 1 # step value start from 0
                 remain_epoch_nums = self._train_epoch_nums - math.floor(global_step_value / self._steps_per_epoch)
-                epoch_start_pt = self._train_epoch_nums - remain_epoch_nums
+                # epoch_start_pt = self._train_epoch_nums - remain_epoch_nums
+                epoch_start_pt = self._train_epoch_nums - remain_epoch_nums + 1
+                # 修改日志打印方式
+                LOG.info('=> Restoring weights from: {}, epoch start pt: {} ... '.format(
+                    str(self._initial_weight), 
+                    int(epoch_start_pt)
+                ))
+                LOG.info('   global_step_value: {}, steps_per_epoch: {}'.format(
+                    int(global_step_value),
+                    int(self._steps_per_epoch)
+                ))
             except OSError as e:
                 LOG.error(e)
                 LOG.info('=> {:s} does not exist !!!'.format(self._initial_weight))
@@ -398,48 +426,51 @@ class LaneNetTusimpleMultiTrainer(object):
             epoch_start_pt = 1
 
         best_model = []
-        for epoch in range(epoch_start_pt, self._train_epoch_nums):
+        for epoch in range(epoch_start_pt, self._train_epoch_nums + 1): # 训练次数从1开始
+            
             # training part
             train_epoch_losses = []
             train_epoch_mious = []
             traindataset_pbar = tqdm.tqdm(range(1, self._steps_per_epoch))
             for _ in traindataset_pbar:
-                if self._enable_miou and epoch % self._record_miou_epoch == 0:
-                    _, _, summary, train_step_loss, train_step_binary_loss, \
-                        train_step_instance_loss, global_step_val = self._sess.run(
-                            fetches=[
-                                self._train_op, self._miou_update_op, self._write_summary_op_with_miou,
-                                self._loss, self._binary_loss, self._instance_loss,
-                                self._global_step
-                            ]
-                    )
-                    train_step_miou = self._sess.run(
-                        fetches=self._miou
-                    )
-                    train_epoch_losses.append(train_step_loss)
-                    train_epoch_mious.append(train_step_miou)
-                    self._summary_writer.add_summary(summary, global_step=global_step_val)
-                    traindataset_pbar.set_description(
-                        'train loss: {:.5f}, b_loss: {:.5f}, i_loss: {:.5f}, miou: {:.5f}'.format(
-                            train_step_loss, train_step_binary_loss, train_step_instance_loss, train_step_miou
+                if True:
+                    if self._enable_miou and epoch % self._record_miou_epoch == 0:
+                        _, _, summary, train_step_loss, train_step_binary_loss, \
+                            train_step_instance_loss, global_step_val = self._sess.run(
+                                fetches=[
+                                    self._train_op, self._miou_update_op, self._write_summary_op_with_miou,
+                                    self._loss, self._binary_loss, self._instance_loss,
+                                    self._global_step
+                                ]
+                            )
+                        train_step_miou = self._sess.run(
+                            fetches=self._miou
                         )
-                    )
-                else:
-                    _, summary, train_step_loss, train_step_binary_loss, \
-                        train_step_instance_loss, global_step_val = self._sess.run(
-                            fetches=[
-                                self._train_op, self._write_summary_op,
-                                self._loss, self._binary_loss, self._instance_loss,
-                                self._global_step
-                            ]
-                    )
-                    train_epoch_losses.append(train_step_loss)
-                    self._summary_writer.add_summary(summary, global_step=global_step_val)
-                    traindataset_pbar.set_description(
-                        'train loss: {:.5f}, b_loss: {:.5f}, i_loss: {:.5f}'.format(
-                            train_step_loss, train_step_binary_loss, train_step_instance_loss
+                        train_epoch_losses.append(train_step_loss)
+                        train_epoch_mious.append(train_step_miou)
+                        self._summary_writer.add_summary(summary, global_step=global_step_val)
+                        traindataset_pbar.set_description(
+                            'train loss: {:.5f}, b_loss: {:.5f}, i_loss: {:.5f}, miou: {:.5f}'.format(
+                                train_step_loss, train_step_binary_loss, train_step_instance_loss, train_step_miou
+                            )
                         )
-                    )
+                    else:
+                        _, summary, train_step_loss, train_step_binary_loss, \
+                            train_step_instance_loss, global_step_val = self._sess.run(
+                                fetches=[
+                                    self._train_op, self._write_summary_op,
+                                    self._loss, self._binary_loss, self._instance_loss,
+                                    self._global_step
+                                ]
+                        )
+                        train_epoch_losses.append(train_step_loss)
+                        self._summary_writer.add_summary(summary, global_step=global_step_val)
+                        traindataset_pbar.set_description(
+                            'train loss: {:.5f}, b_loss: {:.5f}, i_loss: {:.5f}'.format(
+                                train_step_loss, train_step_binary_loss, train_step_instance_loss
+                            )
+                        )
+                
 
             train_epoch_losses = np.mean(train_epoch_losses)
             if self._enable_miou and epoch % self._record_miou_epoch == 0:
