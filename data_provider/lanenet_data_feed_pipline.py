@@ -301,13 +301,16 @@ class LaneNetDataFeeder(object):
                 )
 
                 dataset = dataset.shuffle(buffer_size=512)
+                LOG.info('to repeat()')
                 # repeat num epochs
-                dataset = dataset.repeat(self._epoch_nums)
+                #dataset = dataset.repeat(self._epoch_nums)
+                dataset = dataset.repeat()
 
                 dataset = dataset.batch(batch_size=batch_size, drop_remainder=True)
                 dataset = dataset.prefetch(buffer_size=128)
 
                 iterator = dataset.make_one_shot_iterator()
+                self.iterator = iterator
 
         return iterator.get_next(name='{:s}_IteratorGetNext'.format(self._dataset_flags))
 
