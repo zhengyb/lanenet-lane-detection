@@ -34,7 +34,7 @@ DATASET:
     PADDING_VALUE: [127.5, 127.5, 127.5]
     MEAN_VALUE: [0.5, 0.5, 0.5]
     STD_VALUE: [0.5, 0.5, 0.5]
-    CPU_MULTI_PROCESS_NUMS: 8
+    CPU_MULTI_PROCESS_NUMS: 16 # 8
 FREEZE:
     MODEL_FILENAME: 'model'
     PARAMS_FILENAME: 'params'
@@ -54,11 +54,11 @@ TRAIN:
     MODEL_PARAMS_CONFIG_FILE_NAME: "model_train_config.json"
     RESTORE_FROM_SNAPSHOT:
         ENABLE: False
-        SNAPSHOT_PATH: 'model/tusimple/bisenetv2_lanenet/tusimple_val_miou=0.5257.ckpt-5'
-    SNAPSHOT_EPOCH: 1
-    BATCH_SIZE: 8
-    VAL_BATCH_SIZE: 4
-    EPOCH_NUMS: 6
+        SNAPSHOT_PATH: 'model/tusimple/bisenetv2_lanenet/tusimple_val_miou=0.6656.ckpt-2000'
+    SNAPSHOT_EPOCH: 4
+    BATCH_SIZE: 16
+    VAL_BATCH_SIZE: 8
+    EPOCH_NUMS: 50
     WARM_UP:
         ENABLE: True
         EPOCH_NUMS: 8
@@ -71,11 +71,15 @@ TRAIN:
         ENABLE: True
         GPU_DEVICES: ['0']
         CHIEF_DEVICE_INDEX: 0
+    EARLY_STOPPING:
+        ENABLE: True
+        PATIENCE: 1  # 容忍多少个epoch验证集损失没有改善
+        MIN_DELTA: 0.02 # 0.0001  # 最小改善阈值
 SOLVER:
-    LR: 0.002 # learning rate, 0.001
+    LR: 0.001 # learning rate, 0.001
     LR_POLICY: 'poly'
     LR_POLYNOMIAL_POWER: 0.9
-    OPTIMIZER: 'sgd'
+    OPTIMIZER: 'adam'  # 'sgd' for better performance bug slow convergence, 'adam' for better convergence but slower performance
     MOMENTUM: 0.9
     WEIGHT_DECAY: 0.0005
     MOVING_AVE_DECAY: 0.9995

@@ -292,6 +292,14 @@ class LaneNetTusimpleMultiTrainer(object):
             self._val_write_summary_op = tf.summary.merge(val_summary_merge_list)
             self._summary_writer = tf.summary.FileWriter(self._tboard_save_dir, graph=self._sess.graph)
 
+        # Early stopping 参数
+        self._early_stopping = self._cfg.TRAIN.EARLY_STOPPING.ENABLE
+        if self._early_stopping:
+            self._patience = self._cfg.TRAIN.EARLY_STOPPING.PATIENCE
+            self._min_delta = self._cfg.TRAIN.EARLY_STOPPING.MIN_DELTA
+            self._best_loss = float('inf')
+            self._patience_counter = 0
+
         LOG.info('Initialize tusimple lanenet multi gpu trainner complete')
 
     @staticmethod
@@ -534,7 +542,7 @@ class LaneNetTusimpleMultiTrainer(object):
                         os.makedirs(self._model_save_dir, exist_ok=True)
                         self._saver.save(self._sess, snapshot_model_path, global_step=epoch)
                     else:
-                        best_model = sorted(best_model)
+                        best_model = sorted(best_model) # sort in ascending order
                         if val_epoch_mious > best_model[0]:
                             best_model[0] = val_epoch_mious
                             best_model = sorted(best_model)
@@ -570,7 +578,30 @@ class LaneNetTusimpleMultiTrainer(object):
                         val_epoch_losses
                     )
                 )
+
+            # Early stopping 检查
+            if self._early_stopping:
+                if val_epoch_losses < (self._best_loss - self._min_delta):
+                    self._best_loss = val_epoch_losses
+                    self._patience_counter = 0
+                    
+                    # 保存最佳模型
+                    best_model_name = 'best_model_loss={:.4f}.ckpt'.format(val_epoch_losses)
+                    best_model_path = ops.join(self._model_save_dir, best_model_name)
+                    os.makedirs(self._model_save_dir, exist_ok=True)
+                    self._saver.save(self._sess, best_model_path, global_step=epoch)
+                    LOG.info('=> Save best model with loss: {:.5f}'.format(val_epoch_losses))
+                else:
+                    self._patience_counter += 1
+                    LOG.info('=> Early stopping patience counter: {}/{}'.format(
+                        self._patience_counter, self._patience))
+                    
+                    if self._patience_counter >= self._patience:
+                        LOG.info('=> Early stopping triggered at epoch {}'.format(epoch))
+                        break
+                                
         if self._enable_miou:
+            best_model = sorted(best_model)
             LOG.info('Best model\'s val mious are: {}'.format(best_model))
         LOG.info('Complete training process good luck!!')
 
