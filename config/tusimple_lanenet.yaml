@@ -53,12 +53,14 @@ TRAIN:
     TBOARD_SAVE_DIR: 'tboard/tusimple/'
     MODEL_PARAMS_CONFIG_FILE_NAME: "model_train_config.json"
     RESTORE_FROM_SNAPSHOT:
-        ENABLE: False
-        SNAPSHOT_PATH: 'model/tusimple/bisenetv2_lanenet/tusimple_val_miou=0.6656.ckpt-2000'
+        ENABLE: True
+        LOAD_WEIGHTS_ONLY: True
+        # SNAPSHOT_PATH: 'model/tusimple/bisenetv2_lanenet/tusimple_val_miou=0.5698.ckpt-48'
+        SNAPSHOT_PATH: 'weights/tusimple_lanenet/tusimple_lanenet.ckpt'
     SNAPSHOT_EPOCH: 4
     BATCH_SIZE: 16
     VAL_BATCH_SIZE: 8
-    EPOCH_NUMS: 50
+    EPOCH_NUMS: 5
     WARM_UP:
         ENABLE: True
         EPOCH_NUMS: 8
@@ -73,8 +75,8 @@ TRAIN:
         CHIEF_DEVICE_INDEX: 0
     EARLY_STOPPING:
         ENABLE: True
-        PATIENCE: 1  # 容忍多少个epoch验证集损失没有改善
-        MIN_DELTA: 0.02 # 0.0001  # 最小改善阈值
+        PATIENCE: 10  # 容忍多少个epoch验证集损失没有改善
+        MIN_DELTA: 0.0001  # 最小改善阈值
 SOLVER:
     LR: 0.001 # learning rate, 0.001
     LR_POLICY: 'poly'

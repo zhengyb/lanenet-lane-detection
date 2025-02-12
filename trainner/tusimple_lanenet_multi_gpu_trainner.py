@@ -66,8 +66,13 @@ class LaneNetTusimpleMultiTrainer(object):
 
         if self._cfg.TRAIN.RESTORE_FROM_SNAPSHOT.ENABLE:
             self._initial_weight = self._cfg.TRAIN.RESTORE_FROM_SNAPSHOT.SNAPSHOT_PATH
+            if self._cfg.TRAIN.RESTORE_FROM_SNAPSHOT.LOAD_WEIGHTS_ONLY:
+                self._load_weights_only = True
+            else:
+                self._load_weights_only = False
         else:
             self._initial_weight = None
+            self._load_weights_only = False
         if self._cfg.TRAIN.WARM_UP.ENABLE:
             self._warmup_epoches = self._cfg.TRAIN.WARM_UP.EPOCH_NUMS
             self._warmup_init_learning_rate = self._init_learning_rate / 1000.0
@@ -403,13 +408,18 @@ class LaneNetTusimpleMultiTrainer(object):
             try:
                 # LOG.info('=> Restoring weights from: {:s} ... '.format(self._initial_weight))
                 self._loader.restore(self._sess, self._initial_weight)
-                #
-                # 再恢复全局步数
-                self._global_step_loader.restore(self._sess, self._initial_weight)
-                global_step_value = self._sess.run(self._global_step) + 1 # step value start from 0
-                remain_epoch_nums = self._train_epoch_nums - math.floor(global_step_value / self._steps_per_epoch)
-                # epoch_start_pt = self._train_epoch_nums - remain_epoch_nums
-                epoch_start_pt = self._train_epoch_nums - remain_epoch_nums + 1
+
+                if not self._cfg.TRAIN.RESTORE_FROM_SNAPSHOT.LOAD_WEIGHTS_ONLY:
+                    #
+                    # 再恢复全局步数
+                    self._global_step_loader.restore(self._sess, self._initial_weight)
+                    global_step_value = self._sess.run(self._global_step) + 1 # step value start from 0
+                    remain_epoch_nums = self._train_epoch_nums - math.floor(global_step_value / self._steps_per_epoch)
+                    # epoch_start_pt = self._train_epoch_nums - remain_epoch_nums
+                    epoch_start_pt = self._train_epoch_nums - remain_epoch_nums + 1
+                else:
+                    global_step_value = 0
+                    epoch_start_pt = 1
                 # 修改日志打印方式
                 LOG.info('=> Restoring weights from: {}, epoch start pt: {} ... '.format(
                     str(self._initial_weight), 
