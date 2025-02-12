@@ -57,7 +57,7 @@ TRAIN:
         LOAD_WEIGHTS_ONLY: True
         # SNAPSHOT_PATH: 'model/tusimple/bisenetv2_lanenet/tusimple_val_miou=0.5698.ckpt-48'
         SNAPSHOT_PATH: 'weights/tusimple_lanenet/tusimple_lanenet.ckpt'
-    SNAPSHOT_EPOCH: 4
+    SNAPSHOT_EPOCH: 2
     BATCH_SIZE: 16
     VAL_BATCH_SIZE: 8
     EPOCH_NUMS: 5
