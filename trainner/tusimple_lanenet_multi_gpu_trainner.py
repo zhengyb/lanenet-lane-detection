@@ -304,8 +304,15 @@ class LaneNetTusimpleMultiTrainer(object):
         if self._early_stopping:
             self._patience = self._cfg.TRAIN.EARLY_STOPPING.PATIENCE
             self._min_delta = self._cfg.TRAIN.EARLY_STOPPING.MIN_DELTA
-            self._best_loss = float('inf')
+            self._monitor = self._cfg.TRAIN.EARLY_STOPPING.MONITOR  # 'loss' or 'miou'
+            if self._monitor == 'loss':
+                self._best_metric = float('inf')  # 对于loss，越小越好
+                self._is_better = lambda current, best: current < (best - self._min_delta)
+            else:  # miou
+                self._best_metric = float('-inf')  # 对于miou，越大越好
+                self._is_better = lambda current, best: current > (best + self._min_delta)
             self._patience_counter = 0
+            self._early_stopping_break = False
 
 
         LOG.info('Initialize tusimple lanenet multi gpu trainner complete')
@@ -546,19 +553,35 @@ class LaneNetTusimpleMultiTrainer(object):
 
             # Early stopping 检查
             if self._early_stopping:
-                if val_epoch_losses < (self._best_loss - self._min_delta):
-                    self._best_loss = val_epoch_losses
+                current_metric = val_epoch_mious if self._monitor == 'miou' else val_epoch_losses
+                
+                if self._is_better(current_metric, self._best_metric):
+                    # 性能改善
+                    self._best_metric = current_metric
                     self._patience_counter = 0
                     
+                    os.makedirs(self._model_save_dir, exist_ok=True)
+                    os.system('rm -rf {}/*best_model_*.ckpt*'.format(self._model_save_dir))
                     # 保存最佳模型
-                    self._best_model_name = 'best_model_loss={:.4f}.ckpt'.format(val_epoch_losses)
+                    if self._monitor == 'miou':
+                        best_model_name = 'best_model_miou{:.4f}.ckpt'.format(current_metric)
+                    else:
+                        best_model_name = 'best_model_loss{:.4f}.ckpt'.format(current_metric)
+                    
+                    best_model_path = ops.join(self._model_save_dir, best_model_name)
+                    
+                    self._saver.save(self._sess, best_model_path, global_step=epoch)
+                    LOG.info('=> Saved new best model with {}: {:.5f}'.format(
+                        self._monitor, current_metric))
                 else:
+                    # 性能没有改善
                     self._patience_counter += 1
                     LOG.info('=> Early stopping patience counter: {}/{}'.format(
                         self._patience_counter, self._patience))
                     
                     if self._patience_counter >= self._patience:
-                        LOG.info('=> Early stopping triggered at epoch {}'.format(epoch))
+                        LOG.info('=> Early stopping triggered at epoch {}. Best {}: {:.5f}'.format(
+                            epoch, self._monitor, self._best_metric))
                         self._early_stopping_break = True
 
             # model saving part
@@ -568,7 +591,7 @@ class LaneNetTusimpleMultiTrainer(object):
                     if len(best_model) < 10:
                         best_model.append(val_epoch_mious)
                         best_model = sorted(best_model)
-                        snapshot_model_name = 'tusimple_val_miou={:.4f}.ckpt'.format(val_epoch_mious)
+                        snapshot_model_name = 'tusimple_val_miou{:.4f}.ckpt'.format(val_epoch_mious)
                         snapshot_model_path = ops.join(self._model_save_dir, snapshot_model_name)
                         os.makedirs(self._model_save_dir, exist_ok=True)
                         self._saver.save(self._sess, snapshot_model_path, global_step=epoch)
@@ -577,14 +600,14 @@ class LaneNetTusimpleMultiTrainer(object):
                         if val_epoch_mious > best_model[0]:
                             best_model[0] = val_epoch_mious
                             best_model = sorted(best_model)
-                            snapshot_model_name = 'tusimple_val_miou={:.4f}.ckpt'.format(val_epoch_mious)
+                            snapshot_model_name = 'tusimple_val_miou{:.4f}.ckpt'.format(val_epoch_mious)
                             snapshot_model_path = ops.join(self._model_save_dir, snapshot_model_name)
                             os.makedirs(self._model_save_dir, exist_ok=True)
                             self._saver.save(self._sess, snapshot_model_path, global_step=epoch)
                         else:
                             pass
                 else:
-                    snapshot_model_name = 'tusimple_val_loss={:.4f}.ckpt'.format(val_epoch_losses)
+                    snapshot_model_name = 'tusimple_val_loss{:.4f}.ckpt'.format(val_epoch_losses)
                     snapshot_model_path = ops.join(self._model_save_dir, snapshot_model_name)
                     os.makedirs(self._model_save_dir, exist_ok=True)
                     self._saver.save(self._sess, snapshot_model_path, global_step=epoch)
