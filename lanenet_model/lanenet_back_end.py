@@ -104,28 +104,38 @@ class LaneNetBackEnd(cnn_basenet.CNNBaseModel):
         with tf.variable_scope(name_or_scope=name, reuse=reuse):
             # calculate class weighted binary seg loss
             with tf.variable_scope(name_or_scope='binary_seg'):
+                # 将二值标签转换为one-hot编码
                 binary_label_onehot = tf.one_hot(
                     tf.reshape(
                         tf.cast(binary_label, tf.int32),
-                        shape=[binary_label.get_shape().as_list()[0],
-                               binary_label.get_shape().as_list()[1],
-                               binary_label.get_shape().as_list()[2]]),
-                    depth=self._class_nums,
-                    axis=-1
+                        shape=[binary_label.get_shape().as_list()[0], # 图像数量, batch_size
+                               binary_label.get_shape().as_list()[1], # 图像高度
+                               binary_label.get_shape().as_list()[2]]), # 图像宽度
+                    depth=self._class_nums, # 类别数量, 2, 车道线, 背景
+                    axis=-1, # 在最后一个维度上进行one-hot编码
                 )
+                # 结果形状: [batch_size, height, width, num_classes]
 
+
+                # 将二值标签展平为一维向量
                 binary_label_plain = tf.reshape(
                     binary_label,
                     shape=[binary_label.get_shape().as_list()[0] *
                            binary_label.get_shape().as_list()[1] *
                            binary_label.get_shape().as_list()[2] *
                            binary_label.get_shape().as_list()[3]])
+                
+                # 计算每个类别出现的次数
                 unique_labels, unique_id, counts = tf.unique_with_counts(binary_label_plain)
                 counts = tf.cast(counts, tf.float32)
+                
+                # 计算每个类别的逆权重
                 inverse_weights = tf.divide(
                     1.0,
                     tf.log(tf.add(tf.divide(counts, tf.reduce_sum(counts)), tf.constant(1.02)))
                 )
+                
+                # 根据损失类型计算二值分割损失
                 if self._binary_loss_type == 'cross_entropy':
                     binary_segmenatation_loss = self._compute_class_weighted_cross_entropy_loss(
                         onehot_labels=binary_label_onehot,
@@ -142,11 +152,21 @@ class LaneNetBackEnd(cnn_basenet.CNNBaseModel):
                     raise NotImplementedError
 
             # calculate class weighted instance seg loss
-            with tf.variable_scope(name_or_scope='instance_seg'):
+            # 同一车道线的像素 -> 特征空间中的紧密聚类
+            # 不同车道线的像素 -> 特征空间中的分散聚类
 
+            # 示例：
+            # 车道线A的像素 -> [0.1, 0.2, 0.1, 0.3]
+            # 车道线A的另一个像素 -> [0.12, 0.18, 0.09, 0.28]
+            # 车道线B的像素 -> [0.8, 0.7, 0.9, 0.6]
+            with tf.variable_scope(name_or_scope='instance_seg'):
+                # 对实例分割logits进行批归一化
                 pix_bn = self.layerbn(
                     inputdata=instance_seg_logits, is_training=self._is_training, name='pix_bn')
+                # 对批归一化后的结果进行ReLU激活
                 pix_relu = self.relu(inputdata=pix_bn, name='pix_relu')
+                
+                # 对ReLU激活后的结果进行卷积操作, 输出通道数为embedding维度
                 pix_embedding = self.conv2d(
                     inputdata=pix_relu,
                     out_channel=self._embedding_dims,
@@ -154,11 +174,21 @@ class LaneNetBackEnd(cnn_basenet.CNNBaseModel):
                     use_bias=False,
                     name='pix_embedding_conv'
                 )
+                # 获取pix_embedding的形状, 即图像高度和宽度
                 pix_image_shape = (pix_embedding.get_shape().as_list()[1], pix_embedding.get_shape().as_list()[2])
+                
+                # 计算实例分割损失
                 instance_segmentation_loss, l_var, l_dist, l_reg = \
                     lanenet_discriminative_loss.discriminative_loss(
-                        pix_embedding, instance_label, self._embedding_dims,
-                        pix_image_shape, 0.5, 3.0, 1.0, 1.0, 0.001
+                        pix_embedding, # 像素嵌入特征 [B,H,W,embed_dim]
+                        instance_label, # 实例标签 [B,H,W]
+                        self._embedding_dims,
+                        pix_image_shape, 
+                        0.5, # 同一车道线像素的最大允许距离
+                        3.0, # 不同车道线之间的最小期望距离
+                        1.0,  # 控制类内紧密程度
+                        1.0,  # 控制类内紧密程度
+                        0.001 # 防止特征漂移太远
                     )
 
             l2_reg_loss = tf.constant(0.0, tf.float32)

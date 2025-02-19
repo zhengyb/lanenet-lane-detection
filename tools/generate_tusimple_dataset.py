@@ -43,10 +43,24 @@ def process_json_file(json_file_path, src_dir, ori_dst_dir, binary_dst_dir, inst
     """
     assert ops.exists(json_file_path), '{:s} not exist'.format(json_file_path)
 
+    # the number of images that already processed
     image_nums = len(os.listdir(ori_dst_dir))
+    
 
+    # This is not a real json file, it is a txt file with a lot json format strings
     with open(json_file_path, 'r') as file:
         for line_index, line in enumerate(file):
+            # Each line is a json format string, associated with a image.
+            # {
+            #     "lanes": [
+            #         [-2, -2, -2, -2, 555, 542, 530, 517, 505, 493, 480, 468, 455, 443, 431, 418, 406, 393, 381, 369, 356, 344, 331, 319, 307, 294, 282, 269, 257, 245, 232, 220, 207, 195, 183, 170, 158, 145, 133, 121, 108, 96, 83, 71, 59, 46, 34, -2], 
+            #         [-2, -2, -2, -2, -2, -2, -2, 712, 721, 730, 739, 747, 756, 765, 774, 783, 791, 800, 809, 818, 826, 835, 844, 853, 862, 870, 879, 888, 897, 906, 914, 923, 932, 941, 949, 958, 967, 976, 985, 993, 1002, 1011, 1020, 1028, 1037, 1046, -2, -2], 
+            #         [-2, -2, 521, 489, 457, 425, 393, 361, 330, 298, 266, 234, 202, 170, 138, 106, 74, 42, 11, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2], 
+            #         [-2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2]], 
+            #     "h_samples": [240, 250, 260, 270, 280, 290, 300, 310, 320, 330, 340, 350, 360, 370, 380, 390, 400, 410, 420, 430, 440, 450, 460, 470, 480, 490, 500, 510, 520, 530, 540, 550, 560, 570, 580, 590, 600, 610, 620, 630, 640, 650, 660, 670, 680, 690, 700, 710], 
+            #     "raw_file": "clips/0313-1/51660/20.jpg"
+            # }
+
             info_dict = json.loads(line)
 
             image_dir = ops.split(info_dict['raw_file'])[0]
@@ -62,6 +76,7 @@ def process_json_file(json_file_path, src_dir, ori_dst_dir, binary_dst_dir, inst
             image_name_new = '{:s}.png'.format('{:d}'.format(line_index + image_nums).zfill(4))
 
             src_image = cv2.imread(image_path, cv2.IMREAD_COLOR)
+            # gray images
             dst_binary_image = np.zeros([src_image.shape[0], src_image.shape[1]], np.uint8)
             dst_instance_image = np.zeros([src_image.shape[0], src_image.shape[1]], np.uint8)
 
@@ -71,6 +86,7 @@ def process_json_file(json_file_path, src_dir, ori_dst_dir, binary_dst_dir, inst
                 lane_y = []
                 for index in range(len(lane)):
                     if lane[index] == -2:
+                        # -2 is the padding value?
                         continue
                     else:
                         ptx = lane[index]
@@ -84,6 +100,7 @@ def process_json_file(json_file_path, src_dir, ori_dst_dir, binary_dst_dir, inst
 
                 cv2.polylines(dst_binary_image, lane_pts, isClosed=False,
                               color=255, thickness=5)
+                # colors of the lanes: [20,70, 120, 170, 220]
                 cv2.polylines(dst_instance_image, lane_pts, isClosed=False,
                               color=lane_index * 50 + 20, thickness=5)
 

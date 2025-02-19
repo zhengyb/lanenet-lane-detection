@@ -22,6 +22,7 @@ from lanenet_model import lanenet
 from lanenet_model import lanenet_postprocess
 from local_utils.config_utils import parse_config_utils
 from local_utils.log_util import init_logger
+from tools.utils import make_instance_seg_img_visuable
 
 CFG = parse_config_utils.lanenet_cfg
 LOG = init_logger.get_logger(log_file_name_prefix='lanenet_test')
@@ -29,7 +30,9 @@ LOG = init_logger.get_logger(log_file_name_prefix='lanenet_test')
 output_dir="/app/test/"
 
 # Command line in the container:
-# python tools/test_lanenet.py --image_path /app/data/TUSimple/test_set/clips/00000.jpg --weights_path /app/weights/tusimple_lanenet/tusimple_lanenet.ckpt --with_lane_fit True
+# python tools/test_lanenet.py --image_path /app/data/tusimple_test_image/0.jpg --weights_path /app/weights/tusimple_lanenet/tusimple_lanenet.ckpt --with_lane_fit True
+# python tools/test_lanenet.py --image_path /app/data/lab_test/lab_lanes0213/1.jpg --weights_path /app/weights/tusimple_lanenet/tusimple_lanenet.ckpt --with_lane_fit True --data_source lab_lenovo
+
 
 def init_args():
     """
@@ -39,7 +42,8 @@ def init_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--image_path', type=str, help='The image path or the src image save dir')
     parser.add_argument('--weights_path', type=str, help='The model weights path')
-    parser.add_argument('--with_lane_fit', type=args_str2bool, help='If need to do lane fit', default=True)
+    parser.add_argument('--with_lane_fit', type=args_str2bool, help='If need to do lane fit', default=False)
+    parser.add_argument('--data_source', type=str, help='The data source: tusimple or lab_lenovo', default='tusimple')
 
     return parser.parse_args()
 
@@ -73,7 +77,8 @@ def minmax_scale(input_arr):
     return output_arr
 
 
-def test_lanenet(image_path, weights_path, with_lane_fit=True):
+def test_lanenet(image_path, weights_path, with_lane_fit=True, data_source='tusimple',
+                 save_dir=None, save_name=None):
     """
 
     :param image_path:
@@ -83,12 +88,33 @@ def test_lanenet(image_path, weights_path, with_lane_fit=True):
     """
     assert ops.exists(image_path), '{:s} not exist'.format(image_path)
 
+    # Initialize tensorflow session and model once
+    tf.reset_default_graph()
+    
     LOG.info('Start reading image and preprocessing')
     t_start = time.time()
     image = cv2.imread(image_path, cv2.IMREAD_COLOR)
+    # print("image.shape:")
+    # print(image.shape)
+
+    # if data_source == 'lab_lenovo':
+    # change the top-half of the image to black
+    # image[:int(image.shape[0]*0.75), :, :] = 0
+
     image_vis = image
     # 将图像缩放为512x256. Be careful, the resized sizes are hard-coded in many places in the project.
     image = cv2.resize(image, (512, 256), interpolation=cv2.INTER_LINEAR)
+
+    print("image.shape:")
+    print(image.shape)
+    # if data_source == 'lab_lenovo':
+    if False:
+        # change the top-half of the image to black
+        image[:int(256 *0.75), :, :] = 0
+        pass
+
+    cv2.imwrite(output_dir + '1-image_resize.jpg', image)
+
     # 标准化到[-1, 1]范围
     image = image / 127.5 - 1.0
     LOG.info('Image load complete, cost time: {:.5f}s'.format(time.time() - t_start))
@@ -98,7 +124,15 @@ def test_lanenet(image_path, weights_path, with_lane_fit=True):
     net = lanenet.LaneNet(phase='test', cfg=CFG)
     binary_seg_ret, instance_seg_ret = net.inference(input_tensor=input_tensor, name='LaneNet')
 
-    postprocessor = lanenet_postprocess.LaneNetPostProcessor(cfg=CFG)
+    if data_source == 'tusimple':
+        ipm_remap_file_path = './data/tusimple_ipm_remap.yml'
+    elif data_source == 'lab_lenovo':
+        ipm_remap_file_path = './data/lab_lenovo_ipm_remap_1920_1080.yml'
+    else:
+        raise ValueError(f"Unsupported data source: {data_source}")
+
+
+    postprocessor = lanenet_postprocess.LaneNetPostProcessor(cfg=CFG, ipm_remap_file_path=ipm_remap_file_path)
 
     # Set sess configuration
     sess_config = tf.ConfigProto()
@@ -122,7 +156,7 @@ def test_lanenet(image_path, weights_path, with_lane_fit=True):
 
         t_start = time.time()
         # 运行500次，计算平均时间
-        loop_times = 500
+        loop_times = 1 #500
         for i in range(loop_times):
             binary_seg_image, instance_seg_image = sess.run(
                 [binary_seg_ret, instance_seg_ret],
@@ -132,68 +166,47 @@ def test_lanenet(image_path, weights_path, with_lane_fit=True):
         t_cost /= loop_times
         LOG.info('Single imgae inference cost time: {:.5f}s'.format(t_cost))
 
+
+        # save the binary_seg_image and instance_seg_image as images
+        cv2.imwrite(output_dir + '2-binary_seg_image.jpg', binary_seg_image[0] * 255)
+        # (each_value + 1.0 ) * 127.5
+        # deep copy the instance_seg_image
+        seg_image = np.copy(instance_seg_image[0])
+        print("seg_image.shape:")
+        print(seg_image.shape)
+        for i in range(CFG.MODEL.EMBEDDING_FEATS_DIMS):
+            seg_image[:, :, i] = minmax_scale(seg_image[:, :, i])
+        seg_image2 = np.array(seg_image, np.uint8)
+
+        #seg_image = make_instance_seg_img_visuable(seg_image)
+        cv2.imwrite(output_dir + '3-instance_seg_image.jpg', seg_image2)
+
         postprocess_result = postprocessor.postprocess(
             binary_seg_result=binary_seg_image[0],
             instance_seg_result=instance_seg_image[0],
             source_image=image_vis, # 源图像
             with_lane_fit=with_lane_fit,
-            data_source='tusimple' # 数据集, Why?
+            #data_source='tusimple' # 数据集, Why?
+            data_source=data_source
         )
         mask_image = postprocess_result['mask_image']
-        source_image_with_lane = postprocess_result['source_image']
+
+        if mask_image is None:
+            LOG.warning('Failed to get mask image')
+            mask_image = np.zeros((256, 512, 3), dtype=np.uint8)
+
+        #source_image_with_lane = postprocess_result['source_image']
         if with_lane_fit:
             lane_params = postprocess_result['fit_params']
             LOG.info('Model have fitted {:d} lanes'.format(len(lane_params)))
             for i in range(len(lane_params)):
                 LOG.info('Fitted 2-order lane {:d} curve param: {}'.format(i + 1, lane_params[i]))
 
-        for i in range(CFG.MODEL.EMBEDDING_FEATS_DIMS):
-            instance_seg_image[0][:, :, i] = minmax_scale(instance_seg_image[0][:, :, i])
-        embedding_image = np.array(instance_seg_image[0], np.uint8)
-
-        plt.figure('mask_image')
-        plt.imshow(mask_image[:, :, (2, 1, 0)])
-        plt.figure('src_image')
-        plt.imshow(image_vis[:, :, (2, 1, 0)])
-        plt.figure('instance_image')
-        plt.imshow(embedding_image[:, :, (2, 1, 0)])
-        plt.figure('binary_image')
-        plt.imshow(binary_seg_image[0] * 255, cmap='gray')
-        plt.show()
-
         # Ensure the output directory exists
         os.makedirs(output_dir, exist_ok=True)
-        # Create a figure with 2 rows and 2 columns of subplots
-        fig, axs = plt.subplots(2, 2, figsize=(12, 8))
 
-        # Plot the mask image in the top-left subplot
-        axs[0, 0].imshow(mask_image[:, :, (2, 1, 0)])
-        axs[0, 0].set_title('mask_image')
-        axs[0, 0].axis('off')
-
-        # Plot the source image in the top-right subplot
-        axs[0, 1].imshow(image_vis[:, :, (2, 1, 0)])
-        axs[0, 1].set_title('src_image')
-        axs[0, 1].axis('off')
-
-        # Plot the instance image in the bottom-left subplot
-        axs[1, 0].imshow(embedding_image[:, :, (2, 1, 0)])
-        axs[1, 0].set_title('instance_image')
-        axs[1, 0].axis('off')
-
-        # Plot the binary segmentation image in the bottom-right subplot
-        axs[1, 1].imshow(binary_seg_image[0] * 255, cmap='gray')
-        axs[1, 1].set_title('binary_image')
-        axs[1, 1].axis('off')
-
-        # Adjust layout to prevent overlapping titles or labels
-        plt.tight_layout()
-
-        # Save the composite figure to the specified file
-        plt.savefig(output_dir + 'output.jpg', dpi=600)
-
-        # Optionally, close the figure to free memory
-        plt.close(fig)
+        result_file_path = output_dir + 'output.jpg'
+        postprocessor.save_postprocess_result(image_vis, postprocess_result, result_file_path)
 
         # Save the composite figure to the specified file
         #plt.savefig(output_dir + 'output.jpg', dpi=300)
@@ -210,4 +223,4 @@ if __name__ == '__main__':
     # init args
     args = init_args()
 
-    test_lanenet(args.image_path, args.weights_path, with_lane_fit=args.with_lane_fit)
+    test_lanenet(args.image_path, args.weights_path, with_lane_fit=args.with_lane_fit, data_source=args.data_source)
