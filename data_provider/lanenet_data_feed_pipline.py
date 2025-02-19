@@ -295,6 +295,8 @@ class LaneNetDataFeeder(object):
                         map_func=tf_io_pipline_tools.augment_for_test,
                         num_parallel_calls=CFG.DATASET.CPU_MULTI_PROCESS_NUMS
                     )
+
+                # 对输入图像gt_image进行归一化处理, -1.0 到 1.0
                 dataset = dataset.map(
                     map_func=tf_io_pipline_tools.normalize,
                     num_parallel_calls=CFG.DATASET.CPU_MULTI_PROCESS_NUMS

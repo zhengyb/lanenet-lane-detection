@@ -79,7 +79,7 @@ def write_example_tfrecords(gt_images_paths, gt_binary_images_paths, gt_instance
                     dsize=(RESIZE_IMAGE_WIDTH, RESIZE_IMAGE_HEIGHT),
                     interpolation=cv2.INTER_NEAREST
                 )
-                _gt_binary_image = np.array(_gt_binary_image / 255.0, dtype=np.uint8)
+                _gt_binary_image = np.array(_gt_binary_image / 255.0, dtype=np.uint8) # 0/1
             _gt_binary_image_raw = _gt_binary_image.tostring()
 
             # prepare gt instance image
@@ -172,11 +172,13 @@ def augment_for_train(gt_image, gt_binary_image, gt_instance_image):
     gt_instance_image = tf.cast(gt_instance_image, tf.float32)
 
     # apply random color augmentation
+    # 随机颜色增强 source images
     gt_image, gt_binary_image, gt_instance_image = random_color_augmentation(
         gt_image, gt_binary_image, gt_instance_image
     )
 
     # apply random flip augmentation
+    # 随机水平翻转图像
     gt_image, gt_binary_image, gt_instance_image = random_horizon_flip_batch_images(
         gt_image, gt_binary_image, gt_instance_image
     )
@@ -215,6 +217,7 @@ def augment_for_test(gt_image, gt_binary_image, gt_instance_image):
 def normalize(gt_image, gt_binary_image, gt_instance_image):
     """
     Normalize the image data by substracting the imagenet mean value
+    对输入图像进行归一化处理, -1.0 到 1.0
     :param gt_image:
     :param gt_binary_image:
     :param gt_instance_image:
@@ -310,19 +313,25 @@ def random_horizon_flip_batch_images(gt_image, gt_binary_image, gt_instance_imag
 
 def random_color_augmentation(gt_image, gt_binary_image, gt_instance_image):
     """
-    andom color augmentation
+    random color augmentation
+    对输入图像进行随机颜色增强
     :param gt_image:
     :param gt_binary_image:
     :param gt_instance_image:
     :return:
     """
     # first apply random saturation augmentation
+    # 1. 随机调整饱和度 (saturation)
     gt_image = tf.image.random_saturation(gt_image, 0.8, 1.2)
     # sencond apply random brightness augmentation
+    # 2. 随机调整亮度 (brightness)
     gt_image = tf.image.random_brightness(gt_image, 0.05)
     # third apply random contrast augmentation
+    # 3. 随机调整对比度 (contrast)
     gt_image = tf.image.random_contrast(gt_image, 0.7, 1.3)
 
+    # 4. 将图像像素值裁剪到0到255之间
     gt_image = tf.clip_by_value(gt_image, 0.0, 255.0)
 
+    # 注意：只对原始图像进行增强，标注图像保持不变
     return gt_image, gt_binary_image, gt_instance_image
