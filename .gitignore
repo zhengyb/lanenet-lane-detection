@@ -8,6 +8,11 @@ log/
 
 # tusimple dataset
 data/TUSimple/
+data/route28/
+data/route50/
+
+model/
+test/
 
 # python cache
 *__pycache__*
