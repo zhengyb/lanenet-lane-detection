@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import os
+import time
 import argparse
 from pathlib import Path
 from local_utils.config_utils import parse_config_utils
@@ -135,6 +136,8 @@ def test_lanenet_directory(
     # define saver
     saver = tf.train.Saver(variables_to_restore)
     # saver = tf.train.Saver()
+
+    time_start = time.time()
     try:
         with sess.as_default():
             saver.restore(sess=sess, save_path=weights_path)
@@ -160,9 +163,6 @@ def test_lanenet_directory(
                     image = cv2.resize(
                         image, (512, 256), interpolation=cv2.INTER_LINEAR
                     )
-                    # save resized image in "./test/"
-                    cv2.imwrite("./test/1-resized_image.jpg", image)
-
                     image = image / 127.5 - 1.0
 
                     # Inference
@@ -196,7 +196,14 @@ def test_lanenet_directory(
         plt.close("all")
         tf.reset_default_graph()
 
+
+    time_end = time.time()
+
     LOG.info("Processing complete")
+    if limit_images == 0:
+        LOG.info("Time taken: {} seconds for {} images, {} seconds per_image".format((time_end - time_start), len(image_files), (time_end - time_start) / len(image_files)))
+    else:
+        LOG.info("Time taken: {} seconds for {} images, {} seconds per_image".format((time_end - time_start), limit_images, (time_end - time_start) / limit_images))
 
 
 def main():
