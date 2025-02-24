@@ -222,21 +222,21 @@ class _LaneNetCluster(object):
             "cluster_center": cluster_centers,
         }
 
-        print("DBSCAN cluster result:")
         print("Unique labels:")
         print(unique_labels)
         #print("Cluster centers:")
         #print(cluster_centers)
 
-        # print the first 5 features of each lable
-        for label in unique_labels:
-            if label == -1:
-                continue
-            print("Label: {}".format(label))
-            print("Features:")
-            idx = np.where(db_labels == label)
-            # print the first 5 features of each label
-            print(embedding_image_feats[idx][0:50])
+        if False:
+            # print the first 5 features of each lable
+            for label in unique_labels:
+                if label == -1:
+                    continue
+                print("Label: {}".format(label))
+                print("Features:")
+                idx = np.where(db_labels == label)
+                # print the first 5 features of each label
+                print(embedding_image_feats[idx][0:50])
 
         return ret
     
@@ -530,7 +530,6 @@ class LaneNetPostProcessor(object):
             stats = connect_components_analysis_ret[2]
             # 删除面积小于min_area_threshold的连通区域
             for index, stat in enumerate(stats):
-                print("index: {}, area: {}".format(index, stat[4]))
                 if (
                     stat[4]
                     <= self._cfg.POSTPROCESS.CONNECT_COMPONENTS_ANALYSIS.MIN_AREA_THRESHOLD
@@ -596,7 +595,6 @@ class LaneNetPostProcessor(object):
             self._remap_to_ipm_y,
             interpolation=cv2.INTER_LINEAR,
         )
-        cv2.imwrite("./test/10-ipm_image.jpg", ipm_image)
         result["ipm_image"] = ipm_image
 
         # lane line fit
@@ -635,9 +633,6 @@ class LaneNetPostProcessor(object):
             print(f"Lane {lane_index} coordinates after resize:")
             print(f"Points in mask: {np.sum(tmp_mask == 255)}")
 
-            # 保存临时掩码图像用于调试
-            cv2.imwrite(f"./test/10-1-tmp_mask_lane_{lane_index}.jpg", tmp_mask)
-
             # 将普通视角的图像转换为鸟瞰图（IPM, Inverse Perspective Mapping）
             tmp_ipm_mask = cv2.remap(
                 tmp_mask,
@@ -648,8 +643,6 @@ class LaneNetPostProcessor(object):
             # 添加调试信息
             print(f"Lane {lane_index} after IPM:")
             print(f"Points in IPM mask: {np.sum(tmp_ipm_mask == 255)}")
-            # 保存 IPM 变换后的掩码图像
-            cv2.imwrite(f"./test/10-2-tmp_ipm_mask_lane_{lane_index}.jpg", tmp_ipm_mask)
 
             nonzero_y = np.array(tmp_ipm_mask.nonzero()[0])
             nonzero_x = np.array(tmp_ipm_mask.nonzero()[1])
@@ -693,8 +686,6 @@ class LaneNetPostProcessor(object):
                 )
 
             src_lane_pts.append(lane_pts)
-
-        cv2.imwrite("./test/10-ipm_image_with_lanes.jpg", ipm_image)
 
         # tusimple test data sample point along y axis every 10 pixels
         source_image_width = source_image.shape[1]
