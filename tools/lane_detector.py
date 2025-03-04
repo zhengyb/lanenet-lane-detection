@@ -21,7 +21,7 @@ LANENET_WIDTH = 512
 LANENET_HEIGHT = 256
 
 # filter the lanes those are not straight enough
-STRAIGHT_FIT_PARAM_THRESHOLD = [0.01, 0.1]
+STRAIGHT_FIT_PARAM_THRESHOLD = [0.01, 2]
 
 class LaneDetector():
     def __init__(self, cam_geom=CameraGeometry("carla_camera"), 
@@ -203,6 +203,9 @@ def filter_vp_list(vp_list, distance_threshold=20):
     # 4. 重新计算平均值
     # 5. 返回过滤后的消失点
 
+    if len(vp_list) == 0:
+        return None, []
+
     vp_points = [vp[2] for vp in vp_list]
     # 计算所有消失点的平均值
     vp_mean = np.mean(vp_points, axis=0)
@@ -284,8 +287,8 @@ class CalibLaneDetector(LaneDetector):
                 continue
             # 车的行进方向应该与车道线平行，所以车道线的斜率应该保持在一定的区间范围内
             # 斜率范围
-            # if abs(fit_param[1]) > STRAIGHT_FIT_PARAM_THRESHOLD[1]:
-            #    continue
+            if abs(fit_param[1]) > STRAIGHT_FIT_PARAM_THRESHOLD[1]:
+                continue
             # TODO: 过滤车道线覆盖的区域大小
             # TODO: the other filter conditions
 
@@ -296,7 +299,7 @@ class CalibLaneDetector(LaneDetector):
             if self.debug:
                 # draw the fit straight lane on the original image
                 y_start = 0
-                y_end = self.cg.height # original image height
+                y_end = self.cg.image_height # original image height
                 x_start = straight_fit_param[0] * y_start + straight_fit_param[1]
                 x_end = straight_fit_param[0] * y_end + straight_fit_param[1]
                 pt1 = (int(x_start), int(y_start))
@@ -304,6 +307,7 @@ class CalibLaneDetector(LaneDetector):
                 # 修改颜色格式为OpenCV需要的BGR元组
                 my_color = tuple(map(int, lane_color.tolist()))  # 转换RGB到BGR
                 cv2.line(original_image, pt1, pt2, my_color, 2)
+                print("pt1: {}, pt2: {}".format(pt1, pt2))
 
         if self.debug:
             print("straight_lanes number:")
@@ -316,7 +320,7 @@ class CalibLaneDetector(LaneDetector):
             print(vp_list)
             # 在原图上绘制消失点
             for vp in vp_list:
-                cv2.circle(original_image, (int(vp[2][0]), int(vp[2][1])), 20, (0, 0, 255), -1)
+                cv2.circle(original_image, (int(vp[2][0]), int(vp[2][1])), 5, (255, 0, 0), -1)
 
         filtered_vp_mean, filtered_vp_list = filter_vp_list(vp_list)
         if self.debug:
@@ -403,4 +407,8 @@ if __name__ == "__main__":
     # 计算pitch和yaw
     pitch, yaw = calib_lane_detector.get_pitch_yaw_from_vp(filtered_vp_mean[0], filtered_vp_mean[1])
 
+    for i in range(51):
+        calib_lane_detector.add_to_pitch_yaw_history(pitch, yaw)
+
+    
 
