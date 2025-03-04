@@ -298,7 +298,7 @@ class CalibLaneDetector(LaneDetector):
             straight_lane_colors.append(lane_color)
             if self.debug:
                 # draw the fit straight lane on the original image
-                y_start = 0
+                y_start = int(self.cg.image_height * 2 / 3)
                 y_end = self.cg.image_height # original image height
                 x_start = straight_fit_param[0] * y_start + straight_fit_param[1]
                 x_end = straight_fit_param[0] * y_end + straight_fit_param[1]
@@ -407,8 +407,35 @@ if __name__ == "__main__":
     # 计算pitch和yaw
     pitch, yaw = calib_lane_detector.get_pitch_yaw_from_vp(filtered_vp_mean[0], filtered_vp_mean[1])
 
+    
+    trafo_cam_to_road = calib_lane_detector.cg.trafo_cam_to_road
+    print("Before calibration, trafo_cam_to_road:")
+    print(trafo_cam_to_road)
+
     for i in range(51):
         calib_lane_detector.add_to_pitch_yaw_history(pitch, yaw)
 
+
+    carlibed_cam_geom = calib_lane_detector.cg
+    trafo_cam_to_road = carlibed_cam_geom.trafo_cam_to_road
+    print("After calibration, trafo_cam_to_road:")
+    print(trafo_cam_to_road)
+
+    ln1_pt1_roadXYZ = carlibed_cam_geom.uv_to_roadXYZ_roadframe_iso8855(818, 341)
+    ln1_pt2_roadXYZ = carlibed_cam_geom.uv_to_roadXYZ_roadframe_iso8855(1052, 512)
+    
+    ln2_pt1_roadXYZ = carlibed_cam_geom.uv_to_roadXYZ_roadframe_iso8855(297, 341)
+    ln2_pt2_roadXYZ = carlibed_cam_geom.uv_to_roadXYZ_roadframe_iso8855(720, 512)
+
+    print("ln1_pt1_roadXYZ:")
+    print(ln1_pt1_roadXYZ)
+    print("ln1_pt2_roadXYZ:")
+    print(ln1_pt2_roadXYZ)
+    print("ln2_pt1_roadXYZ:")
+    print(ln2_pt1_roadXYZ)
+    print("ln2_pt2_roadXYZ:")
+    print(ln2_pt2_roadXYZ)
+    
     
 
+    
