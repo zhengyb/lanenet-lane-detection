@@ -11,7 +11,7 @@ from lanenet_model import lanenet
 from lanenet_model import lanenet_postprocess
 from local_utils.config_utils import parse_config_utils
 from local_utils.log_util import init_logger
-from tools.utils import make_instance_seg_img_visuable
+from tools.utils import make_instance_seg_img_visuable, CameraName
 from tools.camera_geometry import CameraGeometry
 
 
@@ -24,7 +24,7 @@ LANENET_HEIGHT = 256
 STRAIGHT_FIT_PARAM_THRESHOLD = [0.01, 2]
 
 class LaneDetector():
-    def __init__(self, cam_geom=CameraGeometry("carla_camera"), 
+    def __init__(self, cam_geom=CameraGeometry(CameraName.CARLA, field_of_view_deg=45), 
                  model_path='./weights/tusimple_lanenet_zyb0213/best_model_miou0.6358.ckpt-270',
                  debug=False):
         self.debug = debug
@@ -227,7 +227,7 @@ def filter_vp_list(vp_list, distance_threshold=20):
 
 
 class CalibLaneDetector(LaneDetector):
-    def __init__(self, cam_geom=CameraGeometry(camera_name="carla_camera"), 
+    def __init__(self, cam_geom=CameraGeometry(camera_name=CameraName.CARLA, field_of_view_deg=45), 
                  model_path='./weights/tusimple_lanenet_zyb0213/best_model_miou0.6358.ckpt-270',
                  debug=False):
         super().__init__(cam_geom, model_path, debug) 
@@ -298,15 +298,15 @@ class CalibLaneDetector(LaneDetector):
             straight_lane_colors.append(lane_color)
             if self.debug:
                 # draw the fit straight lane on the original image
-                y_start = int(self.cg.image_height * 2 / 3)
-                y_end = self.cg.image_height # original image height
+                y_start = int(self.cg.image_height / 3)
+                y_end = int(self.cg.image_height * 0.9) # original image height
                 x_start = straight_fit_param[0] * y_start + straight_fit_param[1]
                 x_end = straight_fit_param[0] * y_end + straight_fit_param[1]
                 pt1 = (int(x_start), int(y_start))
                 pt2 = (int(x_end), int(y_end))
                 # 修改颜色格式为OpenCV需要的BGR元组
                 my_color = tuple(map(int, lane_color.tolist()))  # 转换RGB到BGR
-                cv2.line(original_image, pt1, pt2, my_color, 2)
+                cv2.line(original_image, pt1, pt2, my_color, 5)
                 print("pt1: {}, pt2: {}".format(pt1, pt2))
 
         if self.debug:
@@ -385,7 +385,7 @@ class CalibLaneDetector(LaneDetector):
             roll_deg = self.cg.roll_deg,
             image_width = self.cg.image_width,
             image_height = self.cg.image_height, 
-            #field_of_view_deg = self.cg.field_of_view_deg,
+            field_of_view_deg = self.cg.field_of_view_deg,
             pitch_deg = self.estimated_pitch_deg, 
             yaw_deg = self.estimated_yaw_deg )
         self.cut_v, self.grid = self.cg.precompute_grid()
@@ -394,12 +394,12 @@ class CalibLaneDetector(LaneDetector):
 if __name__ == "__main__":
     test_image_path = "./data/carla_vp_calib01.png"
     carla_cam_geom = CameraGeometry(
-        camera_name = "carla_camera",
+        camera_name = CameraName.CARLA,
         height = 1.3,
         roll_deg = 0,
         image_width = 1024,
-        image_height = 512,
-        # field_of_view_deg = 45
+        image_height = 512, 
+        field_of_view_deg = 45
     )
     calib_lane_detector = CalibLaneDetector(carla_cam_geom, debug=True)
     filtered_vp_mean, postprocess_result = calib_lane_detector.detect_vanishing_point(test_image_path)
@@ -421,11 +421,17 @@ if __name__ == "__main__":
     print("After calibration, trafo_cam_to_road:")
     print(trafo_cam_to_road)
 
-    ln1_pt1_roadXYZ = carlibed_cam_geom.uv_to_roadXYZ_roadframe_iso8855(818, 341)
-    ln1_pt2_roadXYZ = carlibed_cam_geom.uv_to_roadXYZ_roadframe_iso8855(1052, 512)
+    ln1_pt1_roadXYZ = carlibed_cam_geom.uv_to_roadXYZ_roadframe_iso8855(583, 170)
+    ln1_pt2_roadXYZ = carlibed_cam_geom.uv_to_roadXYZ_roadframe_iso8855(981, 460)
     
-    ln2_pt1_roadXYZ = carlibed_cam_geom.uv_to_roadXYZ_roadframe_iso8855(297, 341)
-    ln2_pt2_roadXYZ = carlibed_cam_geom.uv_to_roadXYZ_roadframe_iso8855(720, 512)
+    ln2_pt1_roadXYZ = carlibed_cam_geom.uv_to_roadXYZ_roadframe_iso8855(522, 170)
+    ln2_pt2_roadXYZ = carlibed_cam_geom.uv_to_roadXYZ_roadframe_iso8855(141, 460)
+
+    # 只保留2位小数
+    ln1_pt1_roadXYZ = np.round(ln1_pt1_roadXYZ, 2)
+    ln1_pt2_roadXYZ = np.round(ln1_pt2_roadXYZ, 2)
+    ln2_pt1_roadXYZ = np.round(ln2_pt1_roadXYZ, 2)
+    ln2_pt2_roadXYZ = np.round(ln2_pt2_roadXYZ, 2)
 
     print("ln1_pt1_roadXYZ:")
     print(ln1_pt1_roadXYZ)
@@ -436,6 +442,25 @@ if __name__ == "__main__":
     print("ln2_pt2_roadXYZ:")
     print(ln2_pt2_roadXYZ)
     
-    
+    time1 = time.time()
+    carlibed_cam_geom.precompute_bidirectional_mapping()
+    time2 = time.time()
+    print("precompute_bidirectional_mapping time: {}".format(time2 - time1))
 
-    
+    ln1_pt1_roadXYZ_fast = np.round(carlibed_cam_geom.uv_to_roadxy_iso8855_fast(583, 170), 2) 
+    ln1_pt2_roadXYZ_fast = np.round(carlibed_cam_geom.uv_to_roadxy_iso8855_fast(981, 460), 2)
+    ln2_pt1_roadXYZ_fast = np.round(carlibed_cam_geom.uv_to_roadxy_iso8855_fast(522, 170), 2)
+    ln2_pt2_roadXYZ_fast = np.round(carlibed_cam_geom.uv_to_roadxy_iso8855_fast(141, 460), 2)
+
+    print("Please check the following results:")
+    print("ln1_pt1_roadXYZ_fast:")
+    print(ln1_pt1_roadXYZ_fast)
+    print("ln1_pt2_roadXYZ_fast:")
+    print(ln1_pt2_roadXYZ_fast)
+    print("ln2_pt1_roadXYZ_fast:")
+    print(ln2_pt1_roadXYZ_fast)
+    print("ln2_pt2_roadXYZ_fast:")
+    print(ln2_pt2_roadXYZ_fast)
+
+    uv_coords = carlibed_cam_geom.roadxy_iso8855_to_uv_fast(ln1_pt1_roadXYZ_fast[0], ln1_pt1_roadXYZ_fast[1])
+    print("uv_coords: u = {}, v = {}".format(uv_coords[0], uv_coords[1]))

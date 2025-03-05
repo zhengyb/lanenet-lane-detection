@@ -7,6 +7,7 @@ import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 import tensorflow as tf
+from enum import Enum
 
 from lanenet_model import lanenet
 from lanenet_model import lanenet_postprocess
@@ -15,6 +16,13 @@ from local_utils.log_util import init_logger
 
 CFG = parse_config_utils.lanenet_cfg
 LOG = init_logger.get_logger(log_file_name_prefix='lanenet_test')
+
+
+class CameraName(Enum):
+    ACCORD_LENOVO = "accord_lenovo"
+    CARLA = "carla_camera"
+    BEV = "bev_camera"
+    TUSIMPLE = "tusimple"
 
 
 def minmax_scale(input_arr):

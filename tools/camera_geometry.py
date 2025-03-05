@@ -1,5 +1,7 @@
+import cv2
 import numpy as np
 from tools.utils import CameraName
+from scipy.interpolate import LinearNDInterpolator
 
 def get_intrinsic_matrix4carla(image_width, image_height, field_of_view_deg=45):
     # For our Carla camera alpha_u = alpha_v = alpha
@@ -92,7 +94,79 @@ class CameraGeometry(object):
         X,Y,Z = self.uv_to_roadXYZ_roadframe(u,v)
         return np.array([Z,-X,-Y]) # read book section on coordinate systems to understand this
 
-    def precompute_grid(self,dist=60):
+    def precompute_bidirectional_mapping(self, dist=300):
+        """预计算双向映射表"""
+        # 正向映射：uv -> road (ISO 8855)
+        self.forward_map_x = np.zeros((self.image_height, self.image_width), dtype=np.float32)
+        self.forward_map_y = np.zeros((self.image_height, self.image_width), dtype=np.float32)
+    
+        # 填充映射表
+        cut_v = int(self.compute_minimum_v(dist=dist)+1)
+        road_points = []
+        
+        # 正向映射填充
+        for v in range(cut_v, self.image_height):
+            for u in range(self.image_width):
+                # 正向映射：uv -> road
+                X, Y, Z = self.uv_to_roadXYZ_roadframe_iso8855(u, v)
+                self.forward_map_x[v, u] = X
+                self.forward_map_y[v, u] = Y
+                
+                # 收集逆向映射数据
+                road_points.append((X, Y, u, v))
+
+        # 逆向映射：road (ISO 8855) -> uv 
+        # 需要定义道路坐标的离散化范围
+        self.road_x_min, self.road_x_max = -10, 100  # 根据实际情况调整
+        self.road_y_min, self.road_y_max = -10, 10
+        self.road_resolution = 0.1  # 米/像素
+        
+        # 创建逆向映射网格
+        road_grid_w = int((self.road_x_max - self.road_x_min) / self.road_resolution)
+        road_grid_h = int((self.road_y_max - self.road_y_min) / self.road_resolution)
+        self.inverse_map_u = np.zeros((road_grid_h, road_grid_w), dtype=np.float32)
+        self.inverse_map_v = np.zeros((road_grid_h, road_grid_w), dtype=np.float32)
+
+        # 构建逆向查找表（使用网格插值）
+        road_coords = np.array([(p[0], p[1]) for p in road_points]) # X, Y
+        uv_values = np.array([(p[2], p[3]) for p in road_points]) # u, v
+        
+        # 创建逆向插值器
+        self.inverse_interpolator_u = LinearNDInterpolator(road_coords, uv_values[:,0])
+        self.inverse_interpolator_v = LinearNDInterpolator(road_coords, uv_values[:,1])
+
+    def uv_to_roadxy_iso8855_fast(self, u, v):
+        """使用预计算的映射表实现uv到road坐标的映射"""
+        return self.forward_map_x[v, u], self.forward_map_y[v, u]
+
+    def uv_to_road_remap(self, img):
+        """使用remap实现uv到road坐标的映射"""
+        # 创建目标网格
+        road_img = cv2.remap(
+            img,
+            self.forward_map_x,
+            self.forward_map_y,
+            interpolation=cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_CONSTANT,
+            borderValue=0
+        )
+        return road_img
+
+    def road_coords_iso8855_to_uv_coords_fast(self, road_coords):
+        """使用插值器实现road到uv的映射"""
+        # road_coords: Nx2 数组，包含[X, Y]坐标
+        u = self.inverse_interpolator_u(road_coords)
+        v = self.inverse_interpolator_v(road_coords)
+        return np.stack((u, v), axis=1).astype(np.int32)
+    
+    def roadxy_iso8855_to_uv_fast(self, x, y):
+        """使用插值器实现road到uv的映射"""
+        road_coords = np.array(np.array([x, y]))
+        uv_coords = self.road_coords_iso8855_to_uv_coords_fast(road_coords)
+        return uv_coords[0][0], uv_coords[0][1]
+
+
+    def precompute_grid(self,dist=300):
         cut_v = int(self.compute_minimum_v(dist=dist)+1)
         xy = []
         for v in range(cut_v, self.image_height):
