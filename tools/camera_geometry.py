@@ -43,6 +43,7 @@ class CameraGeometry(object):
         image_width=1920,
         image_height=1080,
         field_of_view_deg=None,
+        debug=True,
     ):
         # scalar constants
         self.camera_name = camera_name
@@ -87,6 +88,9 @@ class CameraGeometry(object):
         self.uv_to_roadXYZ_iso8855_tbl = []
         self.roadXYZ_iso8855_to_uv_tbl = []
         self.cut_v = 0
+        self.forward_map_x = None
+        self.forward_map_y = None
+        self.debug = debug
 
     def camframe_to_roadframe(self, vec_in_cam_frame):
         return (
@@ -117,6 +121,57 @@ class CameraGeometry(object):
             [Z, -X, -Y]
         )  # read book section on coordinate systems to understand this
 
+
+    def save_forward_map_to_file(self, filename):
+        # Only save the point where X or Y is not 0
+        with open(filename, 'w') as f:
+            f.write("#V, U, X, Y\n")
+            for v in range(self.image_height):
+                for u in range(self.image_width):
+                    X, Y = self.forward_map_x[v, u], self.forward_map_y[v, u]
+                    if X != 0 or Y != 0:
+                        f.write(f"{v}, {u}, {X}, {Y}\n")
+
+        print(f"Forward map saved to {filename}")
+
+    def load_forward_map_from_file(self, filename):
+        cut_v = 0
+        forward_map_x = np.zeros((self.image_height, self.image_width), dtype=np.float32)
+        forward_map_y = np.zeros((self.image_height, self.image_width), dtype=np.float32)
+        road_points = []
+        with open(filename, 'r') as f:
+            for line in f:
+                if line.startswith("#V, U, X, Y"):
+                    continue
+                v, u, X, Y = map(float, line.split(","))
+                v = int(v)
+                u = int(u)
+                forward_map_x[v, u] = X
+                forward_map_y[v, u] = Y
+                if cut_v == 0:
+                    cut_v = v
+                road_points.append((X, Y, u, v))
+
+        road_points = np.array(road_points)
+        self.forward_map_x = forward_map_x
+        self.forward_map_y = forward_map_y
+
+        # Get cut_v and road_points
+        self.cut_v = cut_v
+        # get slice of road_points where v == cut_v
+        cut_v_points = road_points[road_points[:, 3] == cut_v]
+        # find the point which Y is closest to 0
+        closest_point = cut_v_points[np.argmin(np.abs(cut_v_points[:, 1]))]
+        self.cut_dist = np.linalg.norm(closest_point[:2])
+
+        self._precompute_inverse_mapping(road_points)
+        if self.debug:
+            print("Center point of the CUT_V: ", closest_point)
+            print("Cut distance: ", self.cut_dist)
+            print("Load forward map from file: {}".format(filename))
+
+                
+
     def precompute_bidirectional_mapping(self, dist=300):
         """预计算双向映射表"""
         # 正向映射：uv -> road (ISO 8855)
@@ -129,9 +184,13 @@ class CameraGeometry(object):
 
         # 填充映射表
         cut_v = int(self.compute_minimum_v(dist=dist) + 1)
-        road_points = []
+        self.cut_v = cut_v
+        self.cut_dist = dist
+        if self.debug:
+            print("Cut distance: {}, Cut V: {}".format(self.cut_dist, self.cut_v))
 
-        # 正向映射填充
+        # 正向映射填充        
+        road_points = []
         for v in range(cut_v, self.image_height):
             for u in range(self.image_width):
                 # 正向映射：uv -> road
@@ -142,6 +201,10 @@ class CameraGeometry(object):
                 # 收集逆向映射数据
                 road_points.append((X, Y, u, v))
 
+        self._precompute_inverse_mapping(road_points)
+
+    def _precompute_inverse_mapping(self, road_points):
+        # road_points: list of (X, Y, u, v)
         # 逆向映射：road (ISO 8855) -> uv
         # 需要定义道路坐标的离散化范围
         self.road_x_min, self.road_x_max = -10, 100  # 根据实际情况调整
@@ -164,10 +227,14 @@ class CameraGeometry(object):
 
     def uv_to_roadxy_iso8855_fast(self, u, v):
         """使用预计算的映射表实现uv到road坐标的映射"""
+        if self.forward_map_x is None or self.forward_map_y is None:
+            raise ValueError("Forward map is not precomputed")
         return self.forward_map_x[v, u], self.forward_map_y[v, u]
 
     def uv_coords_to_roadxy_iso8855_fast(self, uv_coords):
         """使用预计算的映射表实现uv到road坐标的映射"""
+        if self.forward_map_x is None or self.forward_map_y is None:
+            raise ValueError("Forward map is not precomputed")
         uv_coords = np.array(uv_coords)
         u, v = uv_coords[:, 0], uv_coords[:, 1]
         return self.forward_map_x[v, u], self.forward_map_y[v, u]
@@ -175,12 +242,16 @@ class CameraGeometry(object):
     def road_coords_iso8855_to_uv_coords_fast(self, road_coords):
         """使用插值器实现road到uv的映射"""
         # road_coords: Nx2 数组，包含[X, Y]坐标
+        if self.inverse_interpolator_u is None or self.inverse_interpolator_v is None:
+            raise ValueError("Inverse map is not precomputed")
         u = self.inverse_interpolator_u(road_coords)
         v = self.inverse_interpolator_v(road_coords)
         return np.stack((u, v), axis=1).astype(np.int32)
 
     def roadxy_iso8855_to_uv_fast(self, x, y):
         """使用插值器实现road到uv的映射"""
+        if self.inverse_interpolator_u is None or self.inverse_interpolator_v is None:
+            raise ValueError("Inverse map is not precomputed")
         road_coords = np.array(np.array([x, y]))
         uv_coords = self.road_coords_iso8855_to_uv_coords_fast(road_coords)
         return uv_coords[0][0], uv_coords[0][1]
@@ -206,3 +277,4 @@ class CameraGeometry(object):
         uv_vec /= uv_vec[2]
         cut_v = uv_vec[1]
         return cut_v
+    

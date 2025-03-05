@@ -449,16 +449,16 @@ if __name__ == "__main__":
     for i in range(51):
         calib_lane_detector.add_to_pitch_yaw_history(pitch, yaw)
 
-    carlibed_cam_geom = calib_lane_detector.cg
-    trafo_cam_to_road = carlibed_cam_geom.trafo_cam_to_road
+    calibed_cam_geom = calib_lane_detector.cg
+    trafo_cam_to_road = calibed_cam_geom.trafo_cam_to_road
     print("After calibration, trafo_cam_to_road:")
     print(trafo_cam_to_road)
 
-    ln1_pt1_roadXYZ = carlibed_cam_geom.uv_to_roadXYZ_roadframe_iso8855(583, 170)
-    ln1_pt2_roadXYZ = carlibed_cam_geom.uv_to_roadXYZ_roadframe_iso8855(981, 460)
+    ln1_pt1_roadXYZ = calibed_cam_geom.uv_to_roadXYZ_roadframe_iso8855(583, 170)
+    ln1_pt2_roadXYZ = calibed_cam_geom.uv_to_roadXYZ_roadframe_iso8855(981, 460)
 
-    ln2_pt1_roadXYZ = carlibed_cam_geom.uv_to_roadXYZ_roadframe_iso8855(522, 170)
-    ln2_pt2_roadXYZ = carlibed_cam_geom.uv_to_roadXYZ_roadframe_iso8855(141, 460)
+    ln2_pt1_roadXYZ = calibed_cam_geom.uv_to_roadXYZ_roadframe_iso8855(522, 170)
+    ln2_pt2_roadXYZ = calibed_cam_geom.uv_to_roadXYZ_roadframe_iso8855(141, 460)
 
     # 只保留2位小数
     ln1_pt1_roadXYZ = np.round(ln1_pt1_roadXYZ, 2)
@@ -476,21 +476,27 @@ if __name__ == "__main__":
     print(ln2_pt2_roadXYZ)
 
     time1 = time.time()
-    carlibed_cam_geom.precompute_bidirectional_mapping()
+    calibed_cam_geom.precompute_bidirectional_mapping()
     time2 = time.time()
+
     print("precompute_bidirectional_mapping time: {}".format(time2 - time1))
 
+    carlar_cam_map_file = "./data/carla_cam_map.txt"
+    calibed_cam_geom.save_forward_map_to_file(carlar_cam_map_file)
+
+    calibed_cam_geom.load_forward_map_from_file(carlar_cam_map_file)
+
     ln1_pt1_roadXYZ_fast = np.round(
-        carlibed_cam_geom.uv_to_roadxy_iso8855_fast(583, 170), 2
+        calibed_cam_geom.uv_to_roadxy_iso8855_fast(583, 170), 2
     )
     ln1_pt2_roadXYZ_fast = np.round(
-        carlibed_cam_geom.uv_to_roadxy_iso8855_fast(981, 460), 2
+        calibed_cam_geom.uv_to_roadxy_iso8855_fast(981, 460), 2
     )
     ln2_pt1_roadXYZ_fast = np.round(
-        carlibed_cam_geom.uv_to_roadxy_iso8855_fast(522, 170), 2
+        calibed_cam_geom.uv_to_roadxy_iso8855_fast(522, 170), 2
     )
     ln2_pt2_roadXYZ_fast = np.round(
-        carlibed_cam_geom.uv_to_roadxy_iso8855_fast(141, 460), 2
+        calibed_cam_geom.uv_to_roadxy_iso8855_fast(141, 460), 2
     )
 
     print("Please check the following results:")
@@ -503,12 +509,14 @@ if __name__ == "__main__":
     print("ln2_pt2_roadXYZ_fast:")
     print(ln2_pt2_roadXYZ_fast)
 
-    uv_coords = carlibed_cam_geom.roadxy_iso8855_to_uv_fast(
+    uv_coords = calibed_cam_geom.roadxy_iso8855_to_uv_fast(
         ln1_pt1_roadXYZ_fast[0], ln1_pt1_roadXYZ_fast[1]
     )
     print("uv_coords: u = {}, v = {}".format(uv_coords[0], uv_coords[1]))
 
     uv_coords = [[583, 170], [981, 460], [522, 170], [141, 460]]
-    road_coords = carlibed_cam_geom.uv_coords_to_roadxy_iso8855_fast(uv_coords)
+    road_coords = calibed_cam_geom.uv_coords_to_roadxy_iso8855_fast(uv_coords)
     print("road_coords:")
     print(road_coords)
+
+
