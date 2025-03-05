@@ -19,10 +19,11 @@ LOG = init_logger.get_logger(log_file_name_prefix='lanenet_test')
 
 
 class CameraName(Enum):
+    INVALID = "invalid_camera"
+    TUSIMPLE = "tusimple"
     ACCORD_LENOVO = "accord_lenovo"
     CARLA = "carla_camera"
     BEV = "bev_camera"
-    TUSIMPLE = "tusimple"
 
 
 def minmax_scale(input_arr):

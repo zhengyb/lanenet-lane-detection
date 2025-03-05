@@ -55,7 +55,7 @@ class CameraGeometry(object):
         self.image_height = image_height
         self.field_of_view_deg = field_of_view_deg  # 45
         # camera intriniscs and extrinsics
-        if self.camera_name == CameraName.CARLA or self.camera_name == CameraName.BEV:
+        if self.camera_name == CameraName.CARLA or self.camera_name == CameraName.BEV or self.camera_name == CameraName.INVALID:
             self.intrinsic_matrix = get_intrinsic_matrix4carla(
                 self.image_width, self.image_height, self.field_of_view_deg
             )
@@ -231,17 +231,30 @@ class CameraGeometry(object):
             raise ValueError("Forward map is not precomputed")
         return self.forward_map_x[v, u], self.forward_map_y[v, u]
 
+    def is_forward_map_precomputed(self):
+        return self.forward_map_x is not None and self.forward_map_y is not None
+
     def uv_coords_to_roadxy_iso8855_fast(self, uv_coords):
-        """使用预计算的映射表实现uv到road坐标的映射"""
-        if self.forward_map_x is None or self.forward_map_y is None:
+        """
+        使用预计算的映射表实现uv到road坐标的映射    
+        input: uv_coords: Nx2 数组，包含[u, v]坐标
+        output: road_coords: Nx2 数组，包含[X, Y]坐标
+        """
+        if not self.is_forward_map_precomputed():
             raise ValueError("Forward map is not precomputed")
+        
         uv_coords = np.array(uv_coords)
         u, v = uv_coords[:, 0], uv_coords[:, 1]
-        return self.forward_map_x[v, u], self.forward_map_y[v, u]
+        road_coords = np.stack((self.forward_map_x[v, u], self.forward_map_y[v, u]), axis=1)
+        return road_coords
 
     def road_coords_iso8855_to_uv_coords_fast(self, road_coords):
-        """使用插值器实现road到uv的映射"""
-        # road_coords: Nx2 数组，包含[X, Y]坐标
+        """
+            使用插值器实现road到uv的映射
+            input: road_coords: Nx2 数组，包含[X, Y]坐标
+            output: uv_coords: Nx2 数组，包含[u, v]坐标
+        """  
+
         if self.inverse_interpolator_u is None or self.inverse_interpolator_v is None:
             raise ValueError("Inverse map is not precomputed")
         u = self.inverse_interpolator_u(road_coords)

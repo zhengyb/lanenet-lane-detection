@@ -151,6 +151,7 @@ class LaneDetector:
             with_lane_fit=with_lane_fit,
             data_source=data_source,
             with_2d_lane_fit=with_2d_lane_fit,
+            cam_geom=self.cg,
         )
         return postprocess_result
 
@@ -161,7 +162,7 @@ class LaneDetector:
             instance_seg_image,
             original_image,
             with_lane_fit=True,
-            data_source="TODO",
+            data_source="INHAND",
             with_2d_lane_fit=False,
         )
         # TODO:
@@ -250,7 +251,7 @@ class CalibLaneDetector(LaneDetector):
         self.estimated_pitch_deg = 0
         self.estimated_yaw_deg = 0
         self.mean_residuals_thresh = 15
-        self.update_cam_geometry()
+        #self.update_cam_geometry()
         self.pitch_yaw_history = []
         self.calibration_success = False
 
@@ -419,10 +420,32 @@ class CalibLaneDetector(LaneDetector):
             pitch_deg=self.estimated_pitch_deg,
             yaw_deg=self.estimated_yaw_deg,
         )
-        self.cut_v, self.grid = self.cg.precompute_grid()
+        #self.cut_v, self.grid = self.cg.precompute_grid()
 
 
-if __name__ == "__main__":
+def test_virtual_camera():
+    test_image_path = "./data/carla_vp_calib01.png"
+    carla_cam_geom = CameraGeometry(
+        camera_name=CameraName.CARLA,
+        height=1.3,
+        roll_deg=0,
+        pitch_deg=-5.0,
+        yaw_deg=-2.0,
+        image_width=1024,
+        image_height=512,
+        field_of_view_deg=45,
+    )
+    print("Precompute bidirectional mapping...")
+    carla_cam_geom.precompute_bidirectional_mapping()
+
+    print("is_forward_map_precomputed: {}".format(carla_cam_geom.is_forward_map_precomputed()))
+    
+    calib_lane_detector = CalibLaneDetector(carla_cam_geom, debug=True)
+    # Use the calibrated camera geometry to detect the lane lines in the image
+    print("Use the calibrated camera geometry to detect the lane lines in the image...")
+    calib_lane_detector.detect_from_file(test_image_path)    
+
+def test_camera_calibration():
     test_image_path = "./data/carla_vp_calib01.png"
     carla_cam_geom = CameraGeometry(
         camera_name=CameraName.CARLA,
@@ -519,4 +542,12 @@ if __name__ == "__main__":
     print("road_coords:")
     print(road_coords)
 
+    # Use the calibrated camera geometry to detect the lane lines in the image
+    print("Use the calibrated camera geometry to detect the lane lines in the image...")
+    calib_lane_detector.detect_from_file(test_image_path)
 
+
+
+
+if __name__ == "__main__":
+    test_virtual_camera()

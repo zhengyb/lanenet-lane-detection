@@ -45,8 +45,8 @@ def process_video(video_path, output_dir, interval=1):
         # Process frame at specified interval
         if frame_number % frame_interval == 0:
             # Rotate frame 180 degrees
-            rotated_frame = cv2.rotate(frame, cv2.ROTATE_180)
-            
+            #rotated_frame = cv2.rotate(frame, cv2.ROTATE_180)
+            rotated_frame = frame
             # Generate output filename
             timestamp = int((frame_number / fps) * 1000)
             output_path = output_dir / f"frame_{timestamp:08d}ms.jpg"
@@ -65,9 +65,9 @@ def process_video(video_path, output_dir, interval=1):
 
 def main():
     # Configuration
-    video_path = "/app/data/route28/route28-0218-1.mp4"  # Change this to your video path
-    output_dir = "/app/data/route28/route28-0218-1/"  # Change this to your desired output directory
-    interval = 0.5  # Interval in seconds
+    video_path = "/app/data/carla/calibration_video.mp4"  # Change this to your video path
+    output_dir = "/app/data/carla/calibration_video_imgs/"  # Change this to your desired output directory
+    interval = 0.05  # Interval in seconds
     
     # Process video
     process_video(video_path, output_dir, interval)
