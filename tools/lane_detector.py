@@ -464,3 +464,13 @@ if __name__ == "__main__":
 
     uv_coords = carlibed_cam_geom.roadxy_iso8855_to_uv_fast(ln1_pt1_roadXYZ_fast[0], ln1_pt1_roadXYZ_fast[1])
     print("uv_coords: u = {}, v = {}".format(uv_coords[0], uv_coords[1]))
+
+    uv_coords = [
+        [583, 170],
+        [981, 460],
+        [522, 170],
+        [141, 460]
+    ]
+    road_coords = carlibed_cam_geom.uv_coords_to_roadxy_iso8855_fast(uv_coords)
+    print("road_coords:")
+    print(road_coords)

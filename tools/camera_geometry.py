@@ -139,18 +139,11 @@ class CameraGeometry(object):
         """使用预计算的映射表实现uv到road坐标的映射"""
         return self.forward_map_x[v, u], self.forward_map_y[v, u]
 
-    def uv_to_road_remap(self, img):
-        """使用remap实现uv到road坐标的映射"""
-        # 创建目标网格
-        road_img = cv2.remap(
-            img,
-            self.forward_map_x,
-            self.forward_map_y,
-            interpolation=cv2.INTER_LINEAR,
-            borderMode=cv2.BORDER_CONSTANT,
-            borderValue=0
-        )
-        return road_img
+    def uv_coords_to_roadxy_iso8855_fast(self, uv_coords):
+        """使用预计算的映射表实现uv到road坐标的映射"""
+        uv_coords = np.array(uv_coords)
+        u, v = uv_coords[:,0], uv_coords[:,1]
+        return self.forward_map_x[v, u], self.forward_map_y[v, u]
 
     def road_coords_iso8855_to_uv_coords_fast(self, road_coords):
         """使用插值器实现road到uv的映射"""
