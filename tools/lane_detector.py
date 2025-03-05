@@ -16,24 +16,28 @@ from tools.camera_geometry import CameraGeometry
 
 
 CFG = parse_config_utils.lanenet_cfg
-LOG = init_logger.get_logger(log_file_name_prefix='lanenet_test')
+LOG = init_logger.get_logger(log_file_name_prefix="lanenet_test")
 LANENET_WIDTH = 512
 LANENET_HEIGHT = 256
 
 # filter the lanes those are not straight enough
 STRAIGHT_FIT_PARAM_THRESHOLD = [0.01, 2]
 
-class LaneDetector():
-    def __init__(self, cam_geom=CameraGeometry(CameraName.CARLA, field_of_view_deg=45), 
-                 model_path='./weights/tusimple_lanenet_zyb0213/best_model_miou0.6358.ckpt-270',
-                 debug=False):
+
+class LaneDetector:
+    def __init__(
+        self,
+        cam_geom=CameraGeometry(CameraName.CARLA, field_of_view_deg=45),
+        model_path="./weights/tusimple_lanenet_zyb0213/best_model_miou0.6358.ckpt-270",
+        debug=False,
+    ):
         self.debug = debug
         self.cg = cam_geom
         self.cut_v, self.grid = self.cg.precompute_grid()
         self.model_path = model_path
         self.width = LANENET_WIDTH
         self.height = LANENET_HEIGHT
-        self.device = None # TODO: cuda or cpu
+        self.device = None  # TODO: cuda or cpu
         self.input_tensor = None
         self.binary_seg_ret = None
         self.instance_seg_ret = None
@@ -94,8 +98,8 @@ class LaneDetector():
 
     def _get_ipm_remap_file_path(self, camera_name):
         # ipm remap file path: "./data/camera_<name>_ipm_remap.yml"
-        return f'./data/camera_{camera_name}_ipm_remap.yml'
-        
+        return f"./data/camera_{camera_name}_ipm_remap.yml"
+
     def read_imagefile_to_array(self, filename, rotate_180=False):
         # preprocess image
         image = cv2.imread(str(filename), cv2.IMREAD_COLOR)
@@ -104,13 +108,15 @@ class LaneDetector():
             return None
         if rotate_180:
             image = cv2.rotate(image, cv2.ROTATE_180)
-        # TODO: undistort image 
+        # TODO: undistort image
         original_image = image.copy()
-        resize_image = cv2.resize(image, (self.width, self.height), interpolation=cv2.INTER_LINEAR)
+        resize_image = cv2.resize(
+            image, (self.width, self.height), interpolation=cv2.INTER_LINEAR
+        )
         resize_image = resize_image / 127.5 - 1.0
-        return resize_image, original_image   
+        return resize_image, original_image
 
-    def detect_from_file(self, filename):        
+    def detect_from_file(self, filename):
         if self.cg.camera_name == "accord_camera":
             rotate_180 = True
         else:
@@ -122,34 +128,42 @@ class LaneDetector():
         # Inference
         input_tensor = self.input_tensor
         binary_seg_image, instance_seg_image = self.sess.run(
-                        [self.binary_seg_ret, self.instance_seg_ret],
-                        feed_dict={input_tensor: [img]},
-                    )
+            [self.binary_seg_ret, self.instance_seg_ret],
+            feed_dict={input_tensor: [img]},
+        )
         if binary_seg_image is None or len(binary_seg_image) == 0:
             return None, None
         return binary_seg_image[0], instance_seg_image[0]
 
-    def _postprocess(self, binary_seg_image, instance_seg_image, original_image,
-                     with_lane_fit=False,
-                     data_source="tusimple",
-                     with_2d_lane_fit=False
-                     ):
+    def _postprocess(
+        self,
+        binary_seg_image,
+        instance_seg_image,
+        original_image,
+        with_lane_fit=False,
+        data_source="tusimple",
+        with_2d_lane_fit=False,
+    ):
         postprocess_result = self.postprocessor.postprocess(
             binary_seg_result=binary_seg_image,
             instance_seg_result=instance_seg_image,
             source_image=original_image,
             with_lane_fit=with_lane_fit,
             data_source=data_source,
-            with_2d_lane_fit=with_2d_lane_fit
+            with_2d_lane_fit=with_2d_lane_fit,
         )
         return postprocess_result
 
     def detect(self, img_array, original_image):
         binary_seg_image, instance_seg_image = self._predict(img_array)
-        postprocess_result = self._postprocess(binary_seg_image, instance_seg_image, original_image,
-                                               with_lane_fit=True, 
-                                               data_source="TODO",
-                                               with_2d_lane_fit=False)
+        postprocess_result = self._postprocess(
+            binary_seg_image,
+            instance_seg_image,
+            original_image,
+            with_lane_fit=True,
+            data_source="TODO",
+            with_2d_lane_fit=False,
+        )
         # TODO:
         if self.debug:
             result_file_path = "./output/result.jpg"
@@ -157,9 +171,8 @@ class LaneDetector():
                 original_image, postprocess_result, result_file_path
             )
         return postprocess_result
-    
-        # save the postprocess result to an image file
 
+        # save the postprocess result to an image file
 
 
 def vanishing_point_calculation(lane_line_fit_params):
@@ -178,6 +191,7 @@ def vanishing_point_calculation(lane_line_fit_params):
             )
     return vp
 
+
 def vanishing_point_calculation_two_lanes(lane_line_fit_param1, lane_line_fit_param2):
     # calculate the vanishing point of two lanes
 
@@ -193,7 +207,6 @@ def vanishing_point_calculation_two_lanes(lane_line_fit_param1, lane_line_fit_pa
     x = lane_line_fit_param1[0] * y + lane_line_fit_param1[1]
 
     return x, y
-
 
 
 def filter_vp_list(vp_list, distance_threshold=20):
@@ -227,10 +240,13 @@ def filter_vp_list(vp_list, distance_threshold=20):
 
 
 class CalibLaneDetector(LaneDetector):
-    def __init__(self, cam_geom=CameraGeometry(camera_name=CameraName.CARLA, field_of_view_deg=45), 
-                 model_path='./weights/tusimple_lanenet_zyb0213/best_model_miou0.6358.ckpt-270',
-                 debug=False):
-        super().__init__(cam_geom, model_path, debug) 
+    def __init__(
+        self,
+        cam_geom=CameraGeometry(camera_name=CameraName.CARLA, field_of_view_deg=45),
+        model_path="./weights/tusimple_lanenet_zyb0213/best_model_miou0.6358.ckpt-270",
+        debug=False,
+    ):
+        super().__init__(cam_geom, model_path, debug)
         self.estimated_pitch_deg = 0
         self.estimated_yaw_deg = 0
         self.mean_residuals_thresh = 15
@@ -241,13 +257,17 @@ class CalibLaneDetector(LaneDetector):
     def detect4calibration(self, img_array, original_image):
         # Fit lane lines in 2D image
         binary_seg_image, instance_seg_image = self._predict(img_array)
-        postprocess_result = self._postprocess(binary_seg_image, instance_seg_image, original_image,
-                                               with_lane_fit=False, 
-                                               data_source="TODO",
-                                               with_2d_lane_fit=True)
+        postprocess_result = self._postprocess(
+            binary_seg_image,
+            instance_seg_image,
+            original_image,
+            with_lane_fit=False,
+            data_source="TODO",
+            with_2d_lane_fit=True,
+        )
 
         return postprocess_result
-    
+
     def detect_vanishing_point(self, filename):
         color_map = lanenet_postprocess.COLOR_MAP
         # Detect vanishing point in 3D space
@@ -280,7 +300,9 @@ class CalibLaneDetector(LaneDetector):
 
             # Convert tuple coordinates to numpy array
             # Original format: (y_coords, x_coords)
-            lane_points = np.vstack(resized_lane_coords).T  # Convert to Nx2 array [x, y]
+            lane_points = np.vstack(
+                resized_lane_coords
+            ).T  # Convert to Nx2 array [x, y]
 
             # filter the lanes those are not straight enough
             if abs(fit_param[0]) > STRAIGHT_FIT_PARAM_THRESHOLD[0]:
@@ -299,7 +321,7 @@ class CalibLaneDetector(LaneDetector):
             if self.debug:
                 # draw the fit straight lane on the original image
                 y_start = int(self.cg.image_height / 3)
-                y_end = int(self.cg.image_height * 0.9) # original image height
+                y_end = int(self.cg.image_height * 0.9)  # original image height
                 x_start = straight_fit_param[0] * y_start + straight_fit_param[1]
                 x_end = straight_fit_param[0] * y_end + straight_fit_param[1]
                 pt1 = (int(x_start), int(y_start))
@@ -320,7 +342,9 @@ class CalibLaneDetector(LaneDetector):
             print(vp_list)
             # 在原图上绘制消失点
             for vp in vp_list:
-                cv2.circle(original_image, (int(vp[2][0]), int(vp[2][1])), 5, (255, 0, 0), -1)
+                cv2.circle(
+                    original_image, (int(vp[2][0]), int(vp[2][1])), 5, (255, 0, 0), -1
+                )
 
         filtered_vp_mean, filtered_vp_list = filter_vp_list(vp_list)
         if self.debug:
@@ -328,10 +352,16 @@ class CalibLaneDetector(LaneDetector):
             print(filtered_vp_mean)
             print("filtered_vp_list:")
             print(filtered_vp_list)
-        
+
         if filtered_vp_mean is not None and self.debug:
             # 在原图上绘制过滤后的消失点
-            cv2.circle(original_image, (int(filtered_vp_mean[0]), int(filtered_vp_mean[1])), 10, (0, 0, 255), -1)
+            cv2.circle(
+                original_image,
+                (int(filtered_vp_mean[0]), int(filtered_vp_mean[1])),
+                10,
+                (0, 0, 255),
+                -1,
+            )
             cv2.imwrite("original_image_with_vp.jpg", original_image)
 
         postprocess_result["straight_lanes"] = straight_lanes
@@ -354,8 +384,8 @@ class CalibLaneDetector(LaneDetector):
         self.pitch_yaw_history.append([pitch, yaw])
         if len(self.pitch_yaw_history) > 50:
             py = np.array(self.pitch_yaw_history)
-            mean_pitch = np.mean(py[:,0])
-            mean_yaw = np.mean(py[:,1])
+            mean_pitch = np.mean(py[:, 0])
+            mean_yaw = np.mean(py[:, 1])
             self.estimated_pitch_deg = np.rad2deg(mean_pitch)
             self.estimated_yaw_deg = np.rad2deg(mean_yaw)
             self.update_cam_geometry()
@@ -367,54 +397,57 @@ class CalibLaneDetector(LaneDetector):
         # get pitch and yaw in radian from vanishing point in one image
         K_inv = self.cg.inverse_intrinsic_matrix
         p_infinity = np.array([u_i, v_i, 1])
-        r3 = K_inv @ p_infinity    
+        r3 = K_inv @ p_infinity
         r3 /= np.linalg.norm(r3)
         yaw = -np.arctan2(r3[0], r3[2])
-        pitch = np.arcsin(r3[1])    
+        pitch = np.arcsin(r3[1])
 
         if self.debug:
             print("pitch degree: {}".format(np.rad2deg(pitch)))
             print("yaw degree: {}".format(np.rad2deg(yaw)))
 
         return pitch, yaw
-    
+
     def update_cam_geometry(self):
         self.cg = CameraGeometry(
-            camera_name = self.cg.camera_name,
-            height = self.cg.height, 
-            roll_deg = self.cg.roll_deg,
-            image_width = self.cg.image_width,
-            image_height = self.cg.image_height, 
-            field_of_view_deg = self.cg.field_of_view_deg,
-            pitch_deg = self.estimated_pitch_deg, 
-            yaw_deg = self.estimated_yaw_deg )
+            camera_name=self.cg.camera_name,
+            height=self.cg.height,
+            roll_deg=self.cg.roll_deg,
+            image_width=self.cg.image_width,
+            image_height=self.cg.image_height,
+            field_of_view_deg=self.cg.field_of_view_deg,
+            pitch_deg=self.estimated_pitch_deg,
+            yaw_deg=self.estimated_yaw_deg,
+        )
         self.cut_v, self.grid = self.cg.precompute_grid()
 
 
 if __name__ == "__main__":
     test_image_path = "./data/carla_vp_calib01.png"
     carla_cam_geom = CameraGeometry(
-        camera_name = CameraName.CARLA,
-        height = 1.3,
-        roll_deg = 0,
-        image_width = 1024,
-        image_height = 512, 
-        field_of_view_deg = 45
+        camera_name=CameraName.CARLA,
+        height=1.3,
+        roll_deg=0,
+        image_width=1024,
+        image_height=512,
+        field_of_view_deg=45,
     )
     calib_lane_detector = CalibLaneDetector(carla_cam_geom, debug=True)
-    filtered_vp_mean, postprocess_result = calib_lane_detector.detect_vanishing_point(test_image_path)
+    filtered_vp_mean, postprocess_result = calib_lane_detector.detect_vanishing_point(
+        test_image_path
+    )
 
     # 计算pitch和yaw
-    pitch, yaw = calib_lane_detector.get_pitch_yaw_from_vp(filtered_vp_mean[0], filtered_vp_mean[1])
+    pitch, yaw = calib_lane_detector.get_pitch_yaw_from_vp(
+        filtered_vp_mean[0], filtered_vp_mean[1]
+    )
 
-    
     trafo_cam_to_road = calib_lane_detector.cg.trafo_cam_to_road
     print("Before calibration, trafo_cam_to_road:")
     print(trafo_cam_to_road)
 
     for i in range(51):
         calib_lane_detector.add_to_pitch_yaw_history(pitch, yaw)
-
 
     carlibed_cam_geom = calib_lane_detector.cg
     trafo_cam_to_road = carlibed_cam_geom.trafo_cam_to_road
@@ -423,7 +456,7 @@ if __name__ == "__main__":
 
     ln1_pt1_roadXYZ = carlibed_cam_geom.uv_to_roadXYZ_roadframe_iso8855(583, 170)
     ln1_pt2_roadXYZ = carlibed_cam_geom.uv_to_roadXYZ_roadframe_iso8855(981, 460)
-    
+
     ln2_pt1_roadXYZ = carlibed_cam_geom.uv_to_roadXYZ_roadframe_iso8855(522, 170)
     ln2_pt2_roadXYZ = carlibed_cam_geom.uv_to_roadXYZ_roadframe_iso8855(141, 460)
 
@@ -441,16 +474,24 @@ if __name__ == "__main__":
     print(ln2_pt1_roadXYZ)
     print("ln2_pt2_roadXYZ:")
     print(ln2_pt2_roadXYZ)
-    
+
     time1 = time.time()
     carlibed_cam_geom.precompute_bidirectional_mapping()
     time2 = time.time()
     print("precompute_bidirectional_mapping time: {}".format(time2 - time1))
 
-    ln1_pt1_roadXYZ_fast = np.round(carlibed_cam_geom.uv_to_roadxy_iso8855_fast(583, 170), 2) 
-    ln1_pt2_roadXYZ_fast = np.round(carlibed_cam_geom.uv_to_roadxy_iso8855_fast(981, 460), 2)
-    ln2_pt1_roadXYZ_fast = np.round(carlibed_cam_geom.uv_to_roadxy_iso8855_fast(522, 170), 2)
-    ln2_pt2_roadXYZ_fast = np.round(carlibed_cam_geom.uv_to_roadxy_iso8855_fast(141, 460), 2)
+    ln1_pt1_roadXYZ_fast = np.round(
+        carlibed_cam_geom.uv_to_roadxy_iso8855_fast(583, 170), 2
+    )
+    ln1_pt2_roadXYZ_fast = np.round(
+        carlibed_cam_geom.uv_to_roadxy_iso8855_fast(981, 460), 2
+    )
+    ln2_pt1_roadXYZ_fast = np.round(
+        carlibed_cam_geom.uv_to_roadxy_iso8855_fast(522, 170), 2
+    )
+    ln2_pt2_roadXYZ_fast = np.round(
+        carlibed_cam_geom.uv_to_roadxy_iso8855_fast(141, 460), 2
+    )
 
     print("Please check the following results:")
     print("ln1_pt1_roadXYZ_fast:")
@@ -462,15 +503,12 @@ if __name__ == "__main__":
     print("ln2_pt2_roadXYZ_fast:")
     print(ln2_pt2_roadXYZ_fast)
 
-    uv_coords = carlibed_cam_geom.roadxy_iso8855_to_uv_fast(ln1_pt1_roadXYZ_fast[0], ln1_pt1_roadXYZ_fast[1])
+    uv_coords = carlibed_cam_geom.roadxy_iso8855_to_uv_fast(
+        ln1_pt1_roadXYZ_fast[0], ln1_pt1_roadXYZ_fast[1]
+    )
     print("uv_coords: u = {}, v = {}".format(uv_coords[0], uv_coords[1]))
 
-    uv_coords = [
-        [583, 170],
-        [981, 460],
-        [522, 170],
-        [141, 460]
-    ]
+    uv_coords = [[583, 170], [981, 460], [522, 170], [141, 460]]
     road_coords = carlibed_cam_geom.uv_coords_to_roadxy_iso8855_fast(uv_coords)
     print("road_coords:")
     print(road_coords)
