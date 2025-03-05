@@ -20,8 +20,9 @@ from sklearn.preprocessing import StandardScaler
 import matplotlib.pyplot as plt
 
 
-from tools.utils import make_instance_seg_img_visuable, minmax_scale
+from tools.utils import make_instance_seg_img_visuable, minmax_scale, CameraName
 from local_utils.config_utils import parse_config_utils
+from tools.camera_geometry import CameraGeometry
 LOG = loguru.logger
 
 
@@ -43,6 +44,26 @@ COLOR_MAP = [
     np.array([0, 255, 255]), # 亮青色
 ]
 
+
+def figure_to_cv2_image(fig):
+    """
+    将matplotlib figure转换为OpenCV图像格式（BGR）
+    :param fig: matplotlib figure对象
+    :return: OpenCV图像（numpy数组）
+    """
+    # 将figure渲染到canvas
+    fig.canvas.draw()
+    
+    # 获取RGB像素数据
+    img_rgb = np.array(fig.canvas.renderer.buffer_rgba())[..., :3]  # 去除alpha通道
+    
+    # 转换RGB到BGR
+    img_bgr = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
+    
+    # 关闭figure释放内存
+    plt.close(fig)
+    
+    return img_bgr
 
 def _morphological_process(image, kernel_size=5, iterations=2):
     """
@@ -336,7 +357,7 @@ class _LaneNetCluster(object):
                 #    continue
                 idx = np.where(db_labels == label)
                 pix_coord_idx = tuple((coord[idx][:, 1], coord[idx][:, 0]))
-                mask[pix_coord_idx] = self._color_map[index]
+                mask[pix_coord_idx] = self._color_map[label]
                 lane_coords.append(coord[idx])
         except Exception as e:
             print("Error:")
@@ -352,14 +373,14 @@ class LaneNetPostProcessor(object):
     lanenet post process for lane generation
     """
 
-    def __init__(self, cfg, ipm_remap_file_path="./data/tusimple_ipm_remap.yml"):
+    def __init__(self, cfg, ipm_remap_file_path="./data/tusimple_ipm_remap.yml", data_source="tusimple"):
         """
 
         :param ipm_remap_file_path: ipm generate file path
         """
-        assert ops.exists(ipm_remap_file_path), "{:s} not exist".format(
-            ipm_remap_file_path
-        )
+        #assert ops.exists(ipm_remap_file_path), "{:s} not exist".format(
+        #    ipm_remap_file_path
+        #)
 
         self._cfg = cfg
         self._cluster = _LaneNetCluster(cfg=cfg)
@@ -376,19 +397,25 @@ class LaneNetPostProcessor(object):
 
         :return:
         """
-        fs = cv2.FileStorage(self._ipm_remap_file_path, cv2.FILE_STORAGE_READ)
+        if ops.exists(self._ipm_remap_file_path):
+            fs = cv2.FileStorage(self._ipm_remap_file_path, cv2.FILE_STORAGE_READ)
 
-        remap_to_ipm_x = fs.getNode("remap_ipm_x").mat()
-        remap_to_ipm_y = fs.getNode("remap_ipm_y").mat()
+            remap_to_ipm_x = fs.getNode("remap_ipm_x").mat()
+            remap_to_ipm_y = fs.getNode("remap_ipm_y").mat()
+            ret = {
+                "remap_to_ipm_x": remap_to_ipm_x,
+                "remap_to_ipm_y": remap_to_ipm_y,
+            }
 
-        ret = {
-            "remap_to_ipm_x": remap_to_ipm_x,
-            "remap_to_ipm_y": remap_to_ipm_y,
+            fs.release()
+
+            return ret            
+
+        return {
+            "remap_to_ipm_x": None,
+            "remap_to_ipm_y": None,
         }
 
-        fs.release()
-
-        return ret
 
     def save_postprocess_result(self, original_image, result, result_file_path):
 
@@ -470,6 +497,7 @@ class LaneNetPostProcessor(object):
         LOG.info("Result saved to: {}".format(result_file_path))        
         pass
 
+
     def postprocess(
         self,
         binary_seg_result,
@@ -478,6 +506,8 @@ class LaneNetPostProcessor(object):
         source_image=None,
         with_lane_fit=True,
         data_source="tusimple",
+        with_2d_lane_fit=False,
+        cam_geom=CameraGeometry(camera_name=CameraName.INVALID, field_of_view_deg=45),
     ):
         """
 
@@ -498,10 +528,21 @@ class LaneNetPostProcessor(object):
 
         debug_image_dir = "/app/test/"
 
+        ORIGINAL_IMAGE_HEIGHT = source_image.shape[0]
+        ORIGINAL_IMAGE_WIDTH = source_image.shape[1]
+        print("ORIGINAL_IMAGE_HEIGHT:")
+        print(ORIGINAL_IMAGE_HEIGHT)
+        print("ORIGINAL_IMAGE_WIDTH:")
+        print(ORIGINAL_IMAGE_WIDTH)
+
         # convert binary_seg_result
         binary_seg_result = np.array(binary_seg_result * 255, dtype=np.uint8)
+        resized_height = binary_seg_result.shape[0]
 
-        cv2.imwrite(debug_image_dir + "4-binary_seg_result.jpg", binary_seg_result)
+        # TODO: debug: set the bottom 1/3 of the image to 0
+        binary_seg_result[int(resized_height * 0.85):, :] = 0
+
+
         result["binary_seg_result"] = binary_seg_result
         result["instance_seg_result"] = make_instance_seg_img_visuable(instance_seg_result)
 
@@ -561,14 +602,16 @@ class LaneNetPostProcessor(object):
             return result
         
         result["mask_image"] = mask_image
-        
-        cv2.imwrite(debug_image_dir + "9-mask_image.jpg", mask_image)
         print("mask_image.shape:")
         print(mask_image.shape)
 
         print("lane num: {}".format(len(lane_coords)))
 
-        if not with_lane_fit:
+        result["lane_coords"] = lane_coords
+
+        if (not with_lane_fit and not with_2d_lane_fit) \
+            or (with_lane_fit and data_source == "tusimple" and self._remap_to_ipm_x is None) \
+            or (with_lane_fit and data_source != "tusimple" and cam_geom.camera_name == CameraName.INVALID):
             print("not with_lane_fit")
             result["ipm_image"] = None
             tmp_mask = cv2.resize(
@@ -587,168 +630,328 @@ class LaneNetPostProcessor(object):
             )
             result["source_image"] = source_image
             return result
+        
+        elif with_2d_lane_fit:
+            print("with_2d_lane_fit")
 
-        # get IPM image with lane fit
-        ipm_image = cv2.remap(
-            source_image,
-            self._remap_to_ipm_x,
-            self._remap_to_ipm_y,
-            interpolation=cv2.INTER_LINEAR,
-        )
-        result["ipm_image"] = ipm_image
+            # lane line fit
+            resized_lane_coords = []
+            fit_params = []
+            src_lane_pts = []  # lane pts every single lane
 
-        # lane line fit
-        fit_params = []
-        src_lane_pts = []  # lane pts every single lane
-        for lane_index, coords in enumerate(lane_coords):
-            # 添加调试信息
-            print(f"Lane {lane_index} coordinates before resize:")
-            print(f"Shape: {coords.shape}")
-            print(f"Sample points: {coords[:5]}")  # 打印前5个点
-            if data_source == "tusimple":
-                # 将检测到的车道线坐标从模型输出尺寸(256, 512)还原到原始图像尺寸(720, 1280).
-                # The input image size should be (720, 1280)!!!
+            for lane_index, coords in enumerate(lane_coords):  
+                
+                # 创建一个与原始图像大小相同的掩码图像
+                tmp_mask = np.zeros(shape=(ORIGINAL_IMAGE_HEIGHT, ORIGINAL_IMAGE_WIDTH), dtype=np.uint8)
+                # 修改开始：添加坐标裁剪
+                resized_coords = tuple((np.int_(coords[:, 1] * ORIGINAL_IMAGE_HEIGHT / 256), 
+                                            np.int_(coords[:, 0] * ORIGINAL_IMAGE_WIDTH / 512)))
+                resized_lane_coords.append(resized_coords)
+                tmp_mask[resized_coords] = 255
+                
+                nonzero_y = np.array(tmp_mask.nonzero()[0])
+                nonzero_x = np.array(tmp_mask.nonzero()[1])
 
-                tmp_mask = np.zeros(shape=(720, 1280), dtype=np.uint8)
-                resized_coords = tuple(
-                    (
-                        np.int_(coords[:, 1] * 720 / 256),
-                        np.int_(coords[:, 0] * 1280 / 512),
-                    )
-                )
+                # 使用二次多项式对车道线点进行拟合, 在2D空间中
+                fit_param = np.polyfit(nonzero_y, nonzero_x, 2)
+                fit_params.append(fit_param)
 
-            elif data_source == "lab_lenovo":
-                tmp_mask = np.zeros(shape=(1080, 1920), dtype=np.uint8)
-                resized_coords = tuple(
-                    (
-                        np.int_(coords[:, 1] * 1080 / 256),
-                        np.int_(coords[:, 0] * 1920 / 512),
-                    )
-                )
-            else:
-                raise ValueError("Wrong data source now only support tusimple")
-
-            tmp_mask[resized_coords] = 255
-            # 添加调试信息
-            print(f"Lane {lane_index} coordinates after resize:")
-            print(f"Points in mask: {np.sum(tmp_mask == 255)}")
-
-            # 将普通视角的图像转换为鸟瞰图（IPM, Inverse Perspective Mapping）
-            tmp_ipm_mask = cv2.remap(
-                tmp_mask,
-                self._remap_to_ipm_x,
-                self._remap_to_ipm_y,
-                interpolation=cv2.INTER_NEAREST,
-            )
-            # 添加调试信息
-            print(f"Lane {lane_index} after IPM:")
-            print(f"Points in IPM mask: {np.sum(tmp_ipm_mask == 255)}")
-
-            nonzero_y = np.array(tmp_ipm_mask.nonzero()[0])
-            nonzero_x = np.array(tmp_ipm_mask.nonzero()[1])
-
-            # 使用二次多项式对车道线点进行拟合, in the IPM space
-            fit_param = np.polyfit(nonzero_y, nonzero_x, 2)
-            fit_params.append(fit_param)
-
-            [ipm_image_height, ipm_image_width] = tmp_ipm_mask.shape
-            plot_y = np.linspace(10, ipm_image_height, ipm_image_height - 10)
-            fit_x = fit_param[0] * plot_y**2 + fit_param[1] * plot_y + fit_param[2]
-            # fit_x = fit_param[0] * plot_y ** 3 + fit_param[1] * plot_y ** 2 + fit_param[2] * plot_y + fit_param[3]
-
-            # 这个过程的目的是将鸟瞰图中拟合出的车道线点重新映射回原始图像视角，
-            # 这样就可以在原始图像上正确显示检测到的车道线。这种转换是必要的，
-            # 因为我们需要在原始视角下展示结果，而不是鸟瞰图视角。
-            lane_pts = []
-            for index in range(0, plot_y.shape[0], 5):
-                src_x = self._remap_to_ipm_x[
-                    int(plot_y[index]),
-                    int(np.clip(fit_x[index], 0, ipm_image_width - 1)),
-                ]
-                if src_x <= 0:
-                    continue
-                src_y = self._remap_to_ipm_y[
-                    int(plot_y[index]),
-                    int(np.clip(fit_x[index], 0, ipm_image_width - 1)),
-                ]
-                src_y = src_y if src_y > 0 else 0
-
-                lane_pts.append([src_x, src_y])
-
-                # draw the lane on the ipm image
+                # 在原始图像tmp_lane_mask上绘制拟合的车道线
                 lane_color = self._color_map[lane_index].tolist()
-                cv2.circle(
-                    ipm_image,
-                    (int(fit_x[index]), int(plot_y[index])),
-                    5,
-                    lane_color,
-                    -1,
-                )
 
-            src_lane_pts.append(lane_pts)
+                start_plot_y = int(ORIGINAL_IMAGE_HEIGHT / 3)
+                end_plot_y = ORIGINAL_IMAGE_HEIGHT - 1
+                step = int(math.floor((end_plot_y - start_plot_y) / 10))
 
-        # tusimple test data sample point along y axis every 10 pixels
-        source_image_width = source_image.shape[1]
-        for index, single_lane_pts in enumerate(src_lane_pts):
-            single_lane_pt_x = np.array(single_lane_pts, dtype=np.float32)[:, 0]
-            single_lane_pt_y = np.array(single_lane_pts, dtype=np.float32)[:, 1]
+                plot_y = np.linspace(start_plot_y, end_plot_y, step).astype(int)
+                fit_x = fit_param[0] * plot_y**2 + fit_param[1] * plot_y + fit_param[2]
+    
+                # Draw using numpy indexing like mask_image
+                lane_color = self._color_map[lane_index].tolist()
+                for plot_y, fit_x in zip(plot_y, fit_x):
+                    cv2.circle(
+                            source_image,
+                            (int(fit_x), int(plot_y)),
+                            5,
+                            lane_color,
+                            -1,
+                        )    #cv2.polylines(tmp_lane_mask, [points], isClosed=False, color=self._color_map[lane_index].tolist(), thickness=5)
+                
+            
+            
+            result["resized_lane_coords"] = resized_lane_coords
+            result["source_image"] = source_image
+            result["mask_image"] = mask_image
+            result["fit_params"] = fit_params
+            result["ipm_image"] = None
+
+        else:             
+            print("with_3d_lane_fit")
+
+            # 3D lane fit
+            fit_params = []
+            src_lane_pts = []  # lane pts every single lane    
+            lane_colors_index = []            
             if data_source == "tusimple":
-                start_plot_y = 240
-                end_plot_y = 720
-            elif data_source == "lab_lenovo":
-                start_plot_y = 360
-                end_plot_y = 1080
-            else:
-                raise ValueError("Wrong data source now only support tusimple")
-            step = int(math.floor((end_plot_y - start_plot_y) / 10))
-            for plot_y in np.linspace(start_plot_y, end_plot_y, step):
-                diff = single_lane_pt_y - plot_y
-                fake_diff_bigger_than_zero = diff.copy()
-                fake_diff_smaller_than_zero = diff.copy()
-                fake_diff_bigger_than_zero[np.where(diff <= 0)] = float("inf")
-                fake_diff_smaller_than_zero[np.where(diff > 0)] = float("-inf")
-                idx_low = np.argmax(fake_diff_smaller_than_zero)
-                idx_high = np.argmin(fake_diff_bigger_than_zero)
-
-                previous_src_pt_x = single_lane_pt_x[idx_low]
-                previous_src_pt_y = single_lane_pt_y[idx_low]
-                last_src_pt_x = single_lane_pt_x[idx_high]
-                last_src_pt_y = single_lane_pt_y[idx_high]
-
-                if (
-                    previous_src_pt_y < start_plot_y
-                    or last_src_pt_y < start_plot_y
-                    or fake_diff_smaller_than_zero[idx_low] == float("-inf")
-                    or fake_diff_bigger_than_zero[idx_high] == float("inf")
-                ):
-                    continue
-
-                interpolation_src_pt_x = (
-                    abs(previous_src_pt_y - plot_y) * previous_src_pt_x
-                    + abs(last_src_pt_y - plot_y) * last_src_pt_x
-                ) / (abs(previous_src_pt_y - plot_y) + abs(last_src_pt_y - plot_y))
-                interpolation_src_pt_y = (
-                    abs(previous_src_pt_y - plot_y) * previous_src_pt_y
-                    + abs(last_src_pt_y - plot_y) * last_src_pt_y
-                ) / (abs(previous_src_pt_y - plot_y) + abs(last_src_pt_y - plot_y))
-
-                if (
-                    interpolation_src_pt_x > source_image_width
-                    or interpolation_src_pt_x < 10
-                ):
-                    continue
-
-                lane_color = self._color_map[index].tolist()
-                cv2.circle(
+                # get BEV image with lane fit
+                ipm_image = cv2.remap(
                     source_image,
-                    (int(interpolation_src_pt_x), int(interpolation_src_pt_y)),
-                    5,
-                    lane_color,
-                    -1,
+                    self._remap_to_ipm_x,
+                    self._remap_to_ipm_y,
+                    interpolation=cv2.INTER_LINEAR,
                 )
-        result["source_image"] = source_image
-        result["mask_image"] = mask_image
-        result["fit_params"] = fit_params
-        result["ipm_image"] = ipm_image
+                result["ipm_image"] = ipm_image
+
+                # lane line fit
+                for lane_index, coords in enumerate(lane_coords):
+                    # 添加调试信息
+                    print(f"Lane {lane_index} coordinates before resize:")
+                    print(f"Shape: {coords.shape}")
+                    print(f"Sample points: {coords[:5]}")  # 打印前5个点
+                    tmp_mask = np.zeros(shape=(ORIGINAL_IMAGE_HEIGHT, ORIGINAL_IMAGE_WIDTH), dtype=np.uint8)
+                    resized_coords = tuple(
+                        (
+                            np.int_(coords[:, 1] * ORIGINAL_IMAGE_HEIGHT / 256),
+                            np.int_(coords[:, 0] * ORIGINAL_IMAGE_WIDTH / 512),
+                        )
+                    )
+
+                    tmp_mask[resized_coords] = 255
+                    # 添加调试信息
+                    print(f"Lane {lane_index} coordinates after resize:")
+                    print(f"Points in mask: {np.sum(tmp_mask == 255)}")
+
+                    # 将普通视角的图像转换为鸟瞰图（IPM, Inverse Perspective Mapping）
+                    tmp_ipm_mask = cv2.remap(
+                        tmp_mask,
+                        self._remap_to_ipm_x,
+                        self._remap_to_ipm_y,
+                        interpolation=cv2.INTER_NEAREST,
+                        )
+                    # 添加调试信息
+                    print(f"Lane {lane_index} after IPM:")
+                    print(f"Points in IPM mask: {np.sum(tmp_ipm_mask == 255)}")
+
+                    # Filter the background points
+                    nonzero_y = np.array(tmp_ipm_mask.nonzero()[0])
+                    nonzero_x = np.array(tmp_ipm_mask.nonzero()[1])
+
+                    # 使用二次多项式对车道线点进行拟合, in the BEV space
+                    fit_param = np.polyfit(nonzero_y, nonzero_x, 2)
+                    fit_params.append(fit_param)
+
+                    # get the fit lane points in the BEV space
+                    [ipm_image_height, ipm_image_width] = tmp_ipm_mask.shape
+                    plot_y = np.linspace(10, ipm_image_height, ipm_image_height - 10)
+                    fit_x = fit_param[0] * plot_y**2 + fit_param[1] * plot_y + fit_param[2]
+                    # fit_x = fit_param[0] * plot_y ** 3 + fit_param[1] * plot_y ** 2 + fit_param[2] * plot_y + fit_param[3]
+
+                    # 这个过程的目的是将鸟瞰图中拟合出的车道线点重新映射回原始图像视角，
+                    # 这样就可以在原始图像上正确显示检测到的车道线。这种转换是必要的，
+                    # 因为我们需要在原始视角下展示结果，而不是鸟瞰图视角。
+                    lane_pts = []
+                    for index in range(0, plot_y.shape[0], 5):
+                        src_x = self._remap_to_ipm_x[
+                            int(plot_y[index]),
+                            int(np.clip(fit_x[index], 0, ipm_image_width - 1)),
+                        ]
+                        if src_x <= 0:
+                            continue
+                        src_y = self._remap_to_ipm_y[
+                            int(plot_y[index]),
+                            int(np.clip(fit_x[index], 0, ipm_image_width - 1)),
+                        ]
+                        src_y = src_y if src_y > 0 else 0
+
+                        # the fit lane points in the original image
+                        lane_pts.append([src_x, src_y])
+
+                        # draw the lane on the ipm image
+                        lane_color = self._color_map[lane_index].tolist()
+                        lane_colors_index.append(lane_index)
+                        cv2.circle(
+                            ipm_image,
+                            (int(fit_x[index]), int(plot_y[index])),
+                            5,
+                            lane_color,
+                            -1,
+                        )
+
+                    src_lane_pts.append(lane_pts)
+            elif cam_geom.camera_name != CameraName.INVALID and cam_geom.camera_name != CameraName.TUSIMPLE: 
+                # TODO: InHand data source
+                print("cam_geom.camera_name: {}".format(cam_geom.camera_name))
+                fig =plt.figure(figsize=(10, 6), dpi=100)
+                # 生成高密度采样点（1000个点保证曲线连续）
+                MAX_X = 100
+                poly_x = np.linspace(0, MAX_X, 1000)
+                for lane_index, coords in enumerate(lane_coords):
+                    # get the min and max of the coords
+                    coords = np.array(coords)         
+                    # Resize the lane points to the original image size
+                    scaled_u = np.round(coords[:, 0] * ORIGINAL_IMAGE_WIDTH / 512).astype(int)
+                    scaled_v = np.round(coords[:, 1] * ORIGINAL_IMAGE_HEIGHT / 256).astype(int)
+
+                    # 添加边界约束
+                    scaled_u = np.clip(scaled_u, 0, ORIGINAL_IMAGE_WIDTH - 1)
+                    scaled_v = np.clip(scaled_v, 0, ORIGINAL_IMAGE_HEIGHT - 1)
+
+                    original_coords = np.column_stack((scaled_u, scaled_v)) 
+                    # debug: VP_v = 147
+                    # only keep the coords with v > 147
+                    # original_coords = original_coords[original_coords[:, 1] > (147+10)]
+
+                    #start_end_coords = np.array([original_coords[0], original_coords[1], original_coords[-1]])
+                    #print("start_end_coords:")
+                    #print(start_end_coords)
+                   
+                    # 将颜色值从0-255转换为0-1的浮点数，并转换BGR到RGB
+                    lane_color = np.array(self._color_map[lane_index][::-1]) / 255.0  # [::-1]将BGR转为RGB
+                    # Step 1: Map the lane points to the iso8855 coordinate system
+                    iso8855_roadXY_coords = cam_geom.uv_coords_to_roadxy_iso8855_fast(original_coords)
+                    iso8855_roadXY_coords = np.array(iso8855_roadXY_coords)
+
+                    # get the min and max of the X
+                    min_x = np.min(iso8855_roadXY_coords[:, 0])
+                    max_x = np.max(iso8855_roadXY_coords[:, 0])
+                    print("min_x: {}".format(min_x))
+                    print("max_x: {}".format(max_x))
+
+                    #print("iso8855_roadXY_coords:")
+                    #print(iso8855_roadXY_coords)
+                    # Step 2: Fit the lane points in the iso8855 coordinate system
+                    # 添加数据验证
+                    valid_mask = ~np.isnan(iso8855_roadXY_coords).any(axis=1)
+                    iso8855_roadXY_coords = iso8855_roadXY_coords[valid_mask]
+
+                    # only use the coords with x < 100
+                    # iso8855_roadXY_coords = iso8855_roadXY_coords[iso8855_roadXY_coords[:, 0] < 100]
+
+                    # draw the iso8855_roadXY_coords coords
+                    # plt.scatter(iso8855_roadXY_coords[:, 1], iso8855_roadXY_coords[:, 0], color=lane_color, marker='*', s=100)
+
+                    if len(iso8855_roadXY_coords) < 3:  # 二次多项式至少需要3个点
+                        print(f"跳过车道{lane_index}，有效点数不足: {len(iso8855_roadXY_coords)}")
+                        continue
+
+                    # 检查x值是否全相同
+                    if np.all(iso8855_roadXY_coords[:, 0] == iso8855_roadXY_coords[0, 0]):
+                        print(f"跳过车道{lane_index}，x值无变化")
+                        continue                    
+                    # X为自变量，Y为因变量
+                    if True:
+                        # y = ax^2 + bx + c
+                        fit_param = np.polyfit(iso8855_roadXY_coords[:, 0], iso8855_roadXY_coords[:, 1], 2)
+                        if abs(fit_param[0]) > 0.003:
+                            print("Fliter fit_param of lane {}: {}".format(lane_index, fit_param))
+                            continue
+                    else:
+                        # y = bx + c
+                        fit_param = np.polyfit(iso8855_roadXY_coords[:, 0], iso8855_roadXY_coords[:, 1], 1)
+                        fit_param = np.array([0, fit_param[0], fit_param[1]])
+
+                    fit_params.append(fit_param)
+                    print("fit_param of lane {}: {}".format(lane_index, fit_param))
+
+                    fit_y = fit_param[0] * poly_x**2 + fit_param[1] * poly_x + fit_param[2]
+                    # 绘制连续曲线
+                    plt.plot(fit_y, poly_x, 
+                            color=tuple(lane_color),  # 转换为元组格式
+                            linewidth=2.5,
+                            linestyle='-',
+                            label=f'Lane {lane_index+1}')
+                    
+                    fit_y_min_x = fit_param[0] * min_x**2 + fit_param[1] * min_x + fit_param[2]
+                    fit_y_max_x = fit_param[0] * max_x**2 + fit_param[1] * max_x + fit_param[2]
+                    # draw the min and max points
+                    plt.scatter(fit_y_min_x, min_x, color=lane_color, marker='o', s=100)
+                    plt.scatter(fit_y_max_x, max_x, color=lane_color, marker='o', s=100)
+
+                    # Step 3: Map the fit lane points back to the original image
+                    fit_uv_coords = cam_geom.road_coords_iso8855_to_uv_coords_fast(np.stack((poly_x, fit_y), axis=1))
+                    src_lane_pts.append(fit_uv_coords)
+                    lane_colors_index.append(lane_index)
+                    pass
+
+                # 获取当前坐标轴并反转X轴
+                ax = plt.gca()
+                ax.invert_xaxis()  # 新增这行
+                # 坐标轴设置
+                plt.xlim(10, -10)
+                plt.ylim(-10, MAX_X)
+                plt.xlabel('Y (m)')
+                plt.ylabel('X (m)')
+                plt.title('ISO8855 Lane Curves')
+                plt.grid(True)
+                plt.legend()
+                plt.savefig("./output/iso8855_lane_curves.jpg", bbox_inches='tight')
+
+                ipm_image = figure_to_cv2_image(fig)
+            else:
+                result["source_image"] = source_image
+                result["mask_image"] = mask_image
+                result["fit_params"] = fit_params
+                print("data_source: {}".format(data_source))
+                raise ValueError("data_source: {} is not supported".format(data_source))
+            
+            if True:
+                # tusimple test data sample point along y axis every 10 pixels
+                source_image_width = source_image.shape[1]
+                for index, single_lane_pts in enumerate(src_lane_pts):
+                    single_lane_pt_x = np.array(single_lane_pts, dtype=np.float32)[:, 0]
+                    single_lane_pt_y = np.array(single_lane_pts, dtype=np.float32)[:, 1]
+                    start_plot_y = int(ORIGINAL_IMAGE_HEIGHT / 3)
+                    end_plot_y = ORIGINAL_IMAGE_HEIGHT
+                    step = int(math.floor((end_plot_y - start_plot_y) / 10))
+                    for plot_y in np.linspace(start_plot_y, end_plot_y, step):
+                        diff = single_lane_pt_y - plot_y
+                        fake_diff_bigger_than_zero = diff.copy()
+                        fake_diff_smaller_than_zero = diff.copy()
+                        fake_diff_bigger_than_zero[np.where(diff <= 0)] = float("inf")
+                        fake_diff_smaller_than_zero[np.where(diff > 0)] = float("-inf")
+                        idx_low = np.argmax(fake_diff_smaller_than_zero)
+                        idx_high = np.argmin(fake_diff_bigger_than_zero)
+
+                        previous_src_pt_x = single_lane_pt_x[idx_low]
+                        previous_src_pt_y = single_lane_pt_y[idx_low]
+                        last_src_pt_x = single_lane_pt_x[idx_high]
+                        last_src_pt_y = single_lane_pt_y[idx_high]
+
+                        if (
+                            previous_src_pt_y < start_plot_y
+                            or last_src_pt_y < start_plot_y
+                            or fake_diff_smaller_than_zero[idx_low] == float("-inf")
+                            or fake_diff_bigger_than_zero[idx_high] == float("inf")
+                        ):
+                            continue
+
+                        interpolation_src_pt_x = (
+                            abs(previous_src_pt_y - plot_y) * previous_src_pt_x
+                            + abs(last_src_pt_y - plot_y) * last_src_pt_x
+                        ) / (abs(previous_src_pt_y - plot_y) + abs(last_src_pt_y - plot_y))
+                        interpolation_src_pt_y = (
+                            abs(previous_src_pt_y - plot_y) * previous_src_pt_y
+                            + abs(last_src_pt_y - plot_y) * last_src_pt_y
+                        ) / (abs(previous_src_pt_y - plot_y) + abs(last_src_pt_y - plot_y))
+
+                        if (
+                            interpolation_src_pt_x > source_image_width
+                            or interpolation_src_pt_x < 10
+                        ):
+                            continue
+
+                        lane_color = self._color_map[lane_colors_index[index]].tolist()
+                        cv2.circle(
+                            source_image,
+                            (int(interpolation_src_pt_x), int(interpolation_src_pt_y)),
+                            5,
+                            lane_color,
+                            -1,
+                        )
+        
+            result["source_image"] = source_image
+            result["mask_image"] = mask_image
+            result["fit_params"] = fit_params
+            result["ipm_image"] = ipm_image
 
         return result

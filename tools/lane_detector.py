@@ -424,13 +424,14 @@ class CalibLaneDetector(LaneDetector):
 
 
 def test_virtual_camera():
-    test_image_path = "./data/carla_vp_calib01.png"
+    test_image_path = "./data/carla_vp_calib01.png"    
+    #test_image_path = "./data/carla/calibration_video_imgs/frame_00011033ms.jpg"
     carla_cam_geom = CameraGeometry(
         camera_name=CameraName.CARLA,
         height=1.3,
         roll_deg=0,
-        pitch_deg=-5.0,
-        yaw_deg=-2.0,
+        pitch_deg=-5.0, # -5.0
+        yaw_deg=-2.0, # -2.0
         image_width=1024,
         image_height=512,
         field_of_view_deg=45,
@@ -550,4 +551,5 @@ def test_camera_calibration():
 
 
 if __name__ == "__main__":
-    test_virtual_camera()
+    #test_virtual_camera()
+    test_camera_calibration()
