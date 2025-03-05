@@ -25,6 +25,9 @@ class CameraName(Enum):
     CARLA = "carla_camera"
     BEV = "bev_camera"
 
+    def __str__(self):
+        return self.value
+
 
 def minmax_scale(input_arr):
     """

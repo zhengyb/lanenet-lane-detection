@@ -1,4 +1,6 @@
 import cv2
+import json
+import os
 import numpy as np
 from tools.utils import CameraName
 from scipy.interpolate import LinearNDInterpolator
@@ -18,7 +20,17 @@ def get_intrinsic_matrix4carla(image_width, image_height, field_of_view_deg=45):
 
 def get_intrinsic_matrix(camera_name):
     # return the intrinsic matrix of the camera, a 3x3 numpy array
-    # TODO: implement this
+    # Intrinsic matrix filename formart: "camera_<name>_int.json"
+    # Intrinsic matrix file path: "./data/camera_<name>_int.json"
+
+    file_path = "./data/camera_parameters/camera_{}_int.json".format(camera_name)
+    if not os.path.exists(file_path):
+        raise FileNotFoundError("Intrinsic matrix file not found: {}".format(file_path))
+    with open(file_path, 'r') as f:
+        data = json.load(f)
+        intrinsic_matrix = np.array(data["center_camera-intrinsic"]["param"]["cam_K"]["data"]).reshape(3, 3)
+        # distortion_coefficients = np.array(data["center_camera-intrinsic"]["param"]["cam_dist"]["data"]).reshape(1, 5)
+        return intrinsic_matrix
     raise NotImplementedError("Not implemented")
 
 

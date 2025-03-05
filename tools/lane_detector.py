@@ -21,7 +21,7 @@ LANENET_WIDTH = 512
 LANENET_HEIGHT = 256
 
 # filter the lanes those are not straight enough
-STRAIGHT_FIT_PARAM_THRESHOLD = [0.01, 2]
+STRAIGHT_FIT_PARAM_THRESHOLD = [0.01, 10]
 
 
 class LaneDetector:
@@ -447,16 +447,31 @@ def test_virtual_camera():
     calib_lane_detector.detect_from_file(test_image_path)    
 
 def test_camera_calibration():
-    test_image_path = "./data/carla_vp_calib01.png"
-    carla_cam_geom = CameraGeometry(
-        camera_name=CameraName.CARLA,
-        height=1.3,
-        roll_deg=0,
-        image_width=1024,
-        image_height=512,
-        field_of_view_deg=45,
-    )
-    calib_lane_detector = CalibLaneDetector(carla_cam_geom, debug=True)
+    # test_image_path = "./data/carla_vp_calib01.png"
+    test_image_path = "./data/route28/vp_calib4.jpg"
+
+    if False:
+        carla_cam_geom = CameraGeometry(
+            camera_name=CameraName.CARLA,
+            height=1.3, # meters
+            roll_deg=0,
+            image_width=1024,
+            image_height=512,
+            field_of_view_deg=45,
+        )
+        cam_geom = carla_cam_geom
+    else:
+        accord_cam_geom = CameraGeometry(
+            camera_name=CameraName.ACCORD_LENOVO,
+            height=1.2, # meters
+            roll_deg=0,
+            image_width=1920,
+            image_height=1080,
+        )
+        cam_geom = accord_cam_geom
+
+
+    calib_lane_detector = CalibLaneDetector(cam_geom, debug=True)
     filtered_vp_mean, postprocess_result = calib_lane_detector.detect_vanishing_point(
         test_image_path
     )
