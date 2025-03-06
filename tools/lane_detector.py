@@ -457,14 +457,15 @@ def test_virtual_camera():
 
 
 def test_detect_video():
-    video_path = "./data/carla/calibration_video.mp4"
-    interval = 0.1 # seconds
-    rotate_180 = False
+    #video_path = "./data/carla/calibration_video.mp4"
+    video_path = "./data/route28/road28_66_20250306_11_12_47_Pro.mp4"
+    interval = 1.0 # seconds
+    rotate_180 = True
 
     # <video_name>_output.mp4
     output_video_path = video_path.replace(".mp4", "_output.mp4")
 
-    if True:
+    if False:
         carla_cam_geom = CameraGeometry(
             camera_name=CameraName.CARLA,
             height=1.3, # meters
@@ -530,7 +531,9 @@ def test_detect_video():
         
         # Process frame at specified interval
         if frame_number % frame_interval == 0:            
+            print(f"Processing frame {frame_number}...")
             src_image = None
+            raw_image = frame.copy()
             resized_image, original_image = calib_lane_detector.preprocess_image(frame, rotate_180)
             if not calib_lane_detector.calibration_success:
                 vp, postprocess_result = calib_lane_detector.detect_vanishing_point(resized_image, original_image)
@@ -555,7 +558,8 @@ def test_detect_video():
                         # display the length of the pitch and yaw history
                         cv2.putText(src_image, f"P: {calib_lane_detector.estimated_pitch_deg:.2f} deg / Y: {calib_lane_detector.estimated_yaw_deg:.2f} deg, / C: {len(calib_lane_detector.pitch_yaw_history)}", 
                                         (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-                    cv2.imwrite(f"./output/vp_calib_{frame_number:06d}.jpg", src_image)
+                    cv2.imwrite(f"./output/route28-vp_calib_{frame_number:06d}.jpg", src_image)
+                    cv2.imwrite(f"./output/route28-raw_image_{frame_number:06d}.jpg", raw_image)
                 else:
                     # draw a RED dot on the left top corner of the original image
                     cv2.circle(src_image, (50, 50), 30, (0, 0, 255), -1)
@@ -566,7 +570,7 @@ def test_detect_video():
                 postprocess_result = calib_lane_detector.detect(resized_image, original_image)
                 src_image = postprocess_result["source_image"]
                 # display the frame number
-                cv2.putText(src_image, f"Frame#: {frame_number:06d}", (10, 10), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+                cv2.putText(src_image, f"Frame#: {frame_number:06d}", (100, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
                 # draw a GREEN dot on the left top corner of the original image
                 cv2.circle(src_image, (50, 50), 30, (0, 255, 0), -1)
                 # display the length of the pitch and yaw history
