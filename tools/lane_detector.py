@@ -21,7 +21,8 @@ LANENET_WIDTH = 512
 LANENET_HEIGHT = 256
 
 # filter the lanes those are not straight enough
-STRAIGHT_FIT_PARAM_THRESHOLD = [0.01, 10]
+STRAIGHT_FIT_PARAM_THRESHOLD = [0.001, 10] # 0.003 is better than 0.01
+#STRAIGHT_FIT_PARAM_THRESHOLD = [0.01, 10]
 
 
 class LaneDetector:
@@ -243,6 +244,29 @@ def filter_vp_list(vp_list, distance_threshold=20):
     return filtered_vp_mean, filtered_vp_list
 
 
+
+def process_pitch_yaw_history(pitch_yaw_history, std_filter_factor=1.0):
+    # history is a list of [pitch, yaw] in radian
+    pitch_history = np.array(pitch_yaw_history)[:, 0]
+    yaw_history = np.array(pitch_yaw_history)[:, 1]
+
+    # 计算pitch和yaw的平均值
+    estimated_pitch = np.mean(pitch_history)
+    estimated_yaw = np.mean(yaw_history)
+    # remove the outliers
+    pitch_history = pitch_history[np.abs(pitch_history - estimated_pitch) < std_filter_factor * np.std(pitch_history)]
+    yaw_history = yaw_history[np.abs(yaw_history - estimated_yaw) < std_filter_factor * np.std(yaw_history)]
+
+    # 重新计算pitch和yaw的平均值
+    estimated_pitch = np.mean(pitch_history)
+    estimated_yaw = np.mean(yaw_history)
+    # transform to degree
+    estimated_pitch_deg = np.rad2deg(estimated_pitch)
+    estimated_yaw_deg = np.rad2deg(estimated_yaw)
+    return estimated_pitch_deg, estimated_yaw_deg
+
+
+
 class CalibLaneDetector(LaneDetector):
     def __init__(
         self,
@@ -310,7 +334,7 @@ class CalibLaneDetector(LaneDetector):
             # Original format: (y_coords, x_coords)
             lane_points = np.vstack(
                 resized_lane_coords
-            ).T  # Convert to Nx2 array [x, y]
+            ).T  
 
             # filter the lanes those are not straight enough
             if abs(fit_param[0]) > STRAIGHT_FIT_PARAM_THRESHOLD[0]:
@@ -322,11 +346,56 @@ class CalibLaneDetector(LaneDetector):
             # TODO: 过滤车道线覆盖的区域大小
             # TODO: the other filter conditions
 
+            # Fit: x = a*y + b
             straight_fit_param = np.polyfit(lane_points[:, 0], lane_points[:, 1], 1)
+            # TODO: Filter out lanes on straight line
+            print("straight_fit_param for lane {}: {}".format(lane_index, straight_fit_param))
             straight_lanes.append(lane_points)
             straight_lane_fit_params.append(straight_fit_param)
             straight_lane_colors.append(lane_color)
-            if self.debug:
+
+        if len(straight_lanes) < 2:
+            print("No enough straight lanes to calculate vanishing point.")
+            return None, postprocess_result
+        
+        left_lane_idxs = []
+        right_lane_idxs = []
+        for s_lane_index in range(len(straight_lane_fit_params)):
+            straight_fit_param = straight_lane_fit_params[s_lane_index]
+            lane_points = straight_lanes[s_lane_index]
+            lane_color = straight_lane_colors[s_lane_index]
+
+            # Fixme: filter by the lane points number
+            if len(lane_points) < 300:
+                continue
+
+            y_end = self.cg.image_height
+            fix_x_end = straight_fit_param[0] * y_end + straight_fit_param[1]
+            print("fix_x_end for lane {}: {}".format(s_lane_index, fix_x_end))
+
+            if fix_x_end < self.cg.image_width / 2:
+                left_lane_idxs.append(s_lane_index)
+            else:
+                right_lane_idxs.append(s_lane_index)
+
+        print("left_lane_idxs: {}".format(left_lane_idxs))
+        print("right_lane_idxs: {}".format(right_lane_idxs))
+
+        if len(left_lane_idxs) == 0:
+            print("No enough left lane to calculate vanishing point.")
+            return None, postprocess_result
+        if len(right_lane_idxs) == 0:
+            print("No enough right lane to calculate vanishing point.")
+            return None, postprocess_result
+
+
+
+        if self.debug:
+            for s_lane_index in range(len(straight_lane_fit_params)):
+                straight_fit_param = straight_lane_fit_params[s_lane_index]
+                lane_points = straight_lanes[s_lane_index]
+                lane_color = straight_lane_colors[s_lane_index]
+                print("Lane {}: {} points".format(s_lane_index, len(lane_points)))
                 # draw the fit straight lane on the original image
                 y_start = int(self.cg.image_height / 3)
                 y_end = int(self.cg.image_height * 0.9)  # original image height
@@ -390,15 +459,14 @@ class CalibLaneDetector(LaneDetector):
 
     def add_to_pitch_yaw_history(self, pitch, yaw):
         self.pitch_yaw_history.append([pitch, yaw])
-        if len(self.pitch_yaw_history) > 50:
-            py = np.array(self.pitch_yaw_history)
-            mean_pitch = np.mean(py[:, 0])
-            mean_yaw = np.mean(py[:, 1])
-            self.estimated_pitch_deg = np.rad2deg(mean_pitch)
-            self.estimated_yaw_deg = np.rad2deg(mean_yaw)
+        if len(self.pitch_yaw_history) > 46: #50:
+            estimated_pitch_deg, estimated_yaw_deg = process_pitch_yaw_history(self.pitch_yaw_history,
+                                                                               std_filter_factor=1.3)
+            self.estimated_pitch_deg = estimated_pitch_deg
+            self.estimated_yaw_deg = estimated_yaw_deg
             self.update_cam_geometry()
             self.calibration_success = True
-            self.pitch_yaw_history = []
+            #self.pitch_yaw_history = [] # debug
             print("yaw, pitch = ", self.estimated_yaw_deg, self.estimated_pitch_deg)
             self.cg.precompute_bidirectional_mapping()
             self.cg.save_forward_map_to_file(self.cg.get_forward_map_filename())
@@ -509,7 +577,7 @@ def test_detect_video():
     saved_count = 0
     
     # create a new output video file
-    fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     output_fps = int(1.0 / interval)
 
     try:
@@ -529,6 +597,10 @@ def test_detect_video():
         if not ret:
             break
         
+        # skip the first 6 minutes
+        if frame_number < (6 * 60 * fps):
+            frame_number += 1
+            continue
         # Process frame at specified interval
         if frame_number % frame_interval == 0:            
             print(f"Processing frame {frame_number}...")
@@ -536,6 +608,7 @@ def test_detect_video():
             raw_image = frame.copy()
             resized_image, original_image = calib_lane_detector.preprocess_image(frame, rotate_180)
             if not calib_lane_detector.calibration_success:
+                # TODO: in the product case, only used the images while the vehicle is moving faster than 30 km/h to calibrate the camera
                 vp, postprocess_result = calib_lane_detector.detect_vanishing_point(resized_image, original_image)
                 src_image = postprocess_result["source_image"]
                 # display the frame number
@@ -601,10 +674,16 @@ def test_detect_video():
 
     print(f"\nProcessing complete. Saved {saved_count} frames.")
 
-def test_camera_calibration():
+def test_camera_calibration(test_image_path):
+    import glob
+
     # test_image_path = "./data/carla_vp_calib01.png"
     # test_image_path = "./data/route28/vp_calib4.jpg"
-    test_image_path = "./output/route28/route28-raw_image_001080.jpg"
+    #test_image_path = "./output/route28/route28-raw_image_003420.jpg"
+
+    #hard_images = [
+    #    "./output/route28/route28-raw_image_003390.jpg",
+    #]
 
     if False:
         carla_cam_geom = CameraGeometry(
@@ -626,20 +705,40 @@ def test_camera_calibration():
         )
         cam_geom = accord_cam_geom
 
+    test_image_path_list = []
+
 
     calib_lane_detector = CalibLaneDetector(cam_geom, debug=True)
-    filtered_vp_mean, postprocess_result = calib_lane_detector.detect_vanishing_point_from_file(
-        test_image_path
-    )
 
-    if filtered_vp_mean is None:
-        print("No vanishing point found in the image.")
-        exit()
+    if os.path.exists(test_image_path) and os.path.isfile(test_image_path):
+        test_image_path_list.append(test_image_path)
+    else:
+        test_image_path_list = glob.glob(os.path.join(test_image_path, "*.jpg"))
 
-    # 计算pitch和yaw
-    pitch, yaw = calib_lane_detector.get_pitch_yaw_from_vp(
-        filtered_vp_mean[0], filtered_vp_mean[1]
-    )
+
+    for test_image_path in test_image_path_list:
+        filtered_vp_mean, postprocess_result = calib_lane_detector.detect_vanishing_point_from_file(
+            test_image_path
+        )
+
+        if filtered_vp_mean is None:
+            print("No vanishing point found in the image.")
+        else:
+            # 计算pitch和yaw
+            pitch, yaw = calib_lane_detector.get_pitch_yaw_from_vp(
+                filtered_vp_mean[0], filtered_vp_mean[1]
+            )
+            calib_lane_detector.add_to_pitch_yaw_history(pitch, yaw)
+            print("### pitch, yaw history length: {}".format(len(calib_lane_detector.pitch_yaw_history)))
+            if calib_lane_detector.calibration_success:
+                print("Camera calibration success.")
+                print("pitch, yaw history (degree):")
+                for pitch, yaw in calib_lane_detector.pitch_yaw_history:
+                    print(f"\t{np.rad2deg(pitch):.2f}, {np.rad2deg(yaw):.2f}")
+
+                print("estimated pitch, yaw (degree):")
+                print(f"\t{calib_lane_detector.estimated_pitch_deg:.2f}, {calib_lane_detector.estimated_yaw_deg:.2f}")
+                break
 
     exit()
 
@@ -729,5 +828,5 @@ def test_camera_calibration():
 
 if __name__ == "__main__":
     #test_virtual_camera()
-    test_camera_calibration()
+    test_camera_calibration("./output/route28-raw_hwy/")
     #test_detect_video()
