@@ -133,6 +133,8 @@ class CameraGeometry(object):
             [Z, -X, -Y]
         )  # read book section on coordinate systems to understand this
 
+    def get_forward_map_filename(self):
+        return "./data/camera_parameters/camera_{}_forward_map.txt".format(self.camera_name)
 
     def save_forward_map_to_file(self, filename):
         # Only save the point where X or Y is not 0
