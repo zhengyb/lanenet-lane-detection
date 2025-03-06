@@ -120,7 +120,7 @@ class LaneDetector:
         return resize_image, image
 
     def detect_from_file(self, filename):
-        if self.cg.camera_name == "accord_camera":
+        if self.cg.camera_name == CameraName.ACCORD_LENOVO:
             rotate_180 = True
         else:
             rotate_180 = False
@@ -274,7 +274,7 @@ class CalibLaneDetector(LaneDetector):
 
     def detect_vanishing_point_from_file(self, filename):
         # Detect vanishing point in 3D space
-        if self.cg.camera_name == "accord_camera":
+        if self.cg.camera_name == CameraName.ACCORD_LENOVO:
             rotate_180 = True
         else:
             rotate_180 = False
@@ -603,7 +603,8 @@ def test_detect_video():
 
 def test_camera_calibration():
     # test_image_path = "./data/carla_vp_calib01.png"
-    test_image_path = "./data/route28/vp_calib4.jpg"
+    # test_image_path = "./data/route28/vp_calib4.jpg"
+    test_image_path = "./output/route28/route28-raw_image_001080.jpg"
 
     if False:
         carla_cam_geom = CameraGeometry(
@@ -631,10 +632,16 @@ def test_camera_calibration():
         test_image_path
     )
 
+    if filtered_vp_mean is None:
+        print("No vanishing point found in the image.")
+        exit()
+
     # 计算pitch和yaw
     pitch, yaw = calib_lane_detector.get_pitch_yaw_from_vp(
         filtered_vp_mean[0], filtered_vp_mean[1]
     )
+
+    exit()
 
     trafo_cam_to_road = calib_lane_detector.cg.trafo_cam_to_road
     print("Before calibration, trafo_cam_to_road:")
@@ -722,5 +729,5 @@ def test_camera_calibration():
 
 if __name__ == "__main__":
     #test_virtual_camera()
-    #test_camera_calibration()
-    test_detect_video()
+    test_camera_calibration()
+    #test_detect_video()
