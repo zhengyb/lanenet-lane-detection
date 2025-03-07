@@ -543,18 +543,21 @@ class LaneNetPostProcessor(object):
         binary_seg_result = np.array(binary_seg_result * 255, dtype=np.uint8)
         resized_height = binary_seg_result.shape[0]
 
-        result["binary_seg_result"] = binary_seg_result
-        result["instance_seg_result"] = make_instance_seg_img_visuable(instance_seg_result)
-
         if cut_v_start == 0:
             cut_v_start = int(ORIGINAL_IMAGE_HEIGHT * 0.5)
         if cut_v_end == 0:
             cut_v_end = int(ORIGINAL_IMAGE_HEIGHT * 0.85)
-        resized_height_factor = ORIGINAL_IMAGE_HEIGHT / 256
+        resized_height_factor = 256 / ORIGINAL_IMAGE_HEIGHT
         cut_v_start_resized = int(cut_v_start * resized_height_factor)
         cut_v_end_resized = int(cut_v_end * resized_height_factor)
 
-        binary_seg_result[cut_v_start_resized:cut_v_end_resized, :] = 0
+        print("cut_v_start_resized: {}, cut_v_end_resized: {}".format(cut_v_start_resized, cut_v_end_resized))
+        # set the area that is out of the cut area to 0
+        binary_seg_result[0:cut_v_start_resized, :] = 0
+        binary_seg_result[cut_v_end_resized:resized_height, :] = 0
+
+        result["binary_seg_result"] = binary_seg_result
+        result["instance_seg_result"] = make_instance_seg_img_visuable(instance_seg_result)
 
         if self._cfg.POSTPROCESS.MORPHOLOGICAL_PROCESS.ENABLE:
             # apply image morphology operation to fill in the hold and reduce the small area
@@ -606,6 +609,7 @@ class LaneNetPostProcessor(object):
             final_result=result
         )
         if mask_image is None:
+            result["ipm_image"] = None
             result["mask_image"] = None
             result["fit_params"] = None
             result["source_image"] = None
