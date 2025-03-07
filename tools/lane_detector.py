@@ -20,6 +20,7 @@ LOG = init_logger.get_logger(log_file_name_prefix="lanenet_test")
 LANENET_WIDTH = 512
 LANENET_HEIGHT = 256
 PITCH_YAW_HISTORY_SIZE = 100
+CUT_V_OFFSET = 20
 
 # filter the lanes those are not straight enough
 STRAIGHT_FIT_PARAM_THRESHOLD = [0.001, 10] # 0.003 is better than 0.01
@@ -152,6 +153,7 @@ class LaneDetector:
         cut_v_start=0,
         cut_v_end=0,
     ):
+        print("cut_v_start: {}, cut_v_end: {}".format(cut_v_start, cut_v_end))
         postprocess_result = self.postprocessor.postprocess(
             binary_seg_result=binary_seg_image,
             instance_seg_result=instance_seg_image,
@@ -166,6 +168,7 @@ class LaneDetector:
         return postprocess_result
 
     def detect(self, img_array, original_image):
+        print("detect...")
         binary_seg_image, instance_seg_image = self._predict(img_array)
         postprocess_result = self._postprocess(
             binary_seg_image,
@@ -174,7 +177,7 @@ class LaneDetector:
             with_lane_fit=True,
             data_source="INHAND",
             with_2d_lane_fit=False,
-            cut_v_start=self.cg.cut_v + 10,
+            cut_v_start=self.cg.cut_v + CUT_V_OFFSET,
             cut_v_end=0,
         )
         # TODO:
@@ -631,7 +634,8 @@ def test_detect_video(force_calib=False):
     if not out_video.isOpened():
         raise RuntimeError(f"无法创建视频文件，请检查编码器 {fourcc} 是否支持")
 
-    stop_frame_number = 25* 60 * fps
+    stop_frame_number = 8* 60 * fps
+    start_frame_number = 6 * 60 * fps
 
     if force_calib:
         calib_lane_detector.calibration_success = False
@@ -649,7 +653,7 @@ def test_detect_video(force_calib=False):
             break
         
         # skip the first 6 minutes
-        if frame_number < (6 * 60 * fps):
+        if frame_number < start_frame_number:
             frame_number += 1
             continue
         # Process frame at specified interval
@@ -697,9 +701,9 @@ def test_detect_video(force_calib=False):
                 cv2.putText(src_image, f"Frame#: {frame_number:06d}", (100, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
                     
                 # draw a line at cut_v
-                cv2.line(src_image, (0, calib_lane_detector.cg.cut_v+10), (cam_geom.image_width, calib_lane_detector.cg.cut_v+10), (0, 0, 255), 2)
+                cv2.line(src_image, (0, calib_lane_detector.cg.cut_v+CUT_V_OFFSET), (cam_geom.image_width, calib_lane_detector.cg.cut_v+CUT_V_OFFSET), (0, 0, 255), 1)
                 # draw a line at 0.8 * cam_geom.image_height
-                cv2.line(src_image, (0, int(0.8 * cam_geom.image_height)), (cam_geom.image_width, int(0.8 * cam_geom.image_height)), (0, 0, 255), 2)
+                cv2.line(src_image, (0, int(0.8 * cam_geom.image_height)), (cam_geom.image_width, int(0.8 * cam_geom.image_height)), (0, 0, 255), 1)
                 if calib_lane_detector.estimated_pitch_deg != 0.0 and calib_lane_detector.estimated_yaw_deg != 0.0:
                     # draw a GREEN dot on the left top corner of the original image
                     cv2.circle(src_image, (50, 50), 30, (0, 255, 0), -1)
@@ -736,6 +740,51 @@ def test_detect_video(force_calib=False):
     cv2.destroyAllWindows()
 
     print(f"\nProcessing complete. Saved {saved_count} frames.")
+
+
+
+def test_detector(test_image_path):
+    import glob
+    if False:
+        carla_cam_geom = CameraGeometry(
+            camera_name=CameraName.CARLA,
+            height=1.3, # meters
+            roll_deg=0,
+            image_width=1024,
+            image_height=512,
+            field_of_view_deg=45,
+        )
+        cam_geom = carla_cam_geom
+    else:
+        accord_cam_geom = CameraGeometry(
+            camera_name=CameraName.ACCORD_LENOVO,
+            height=1.2, # meters
+            roll_deg=0,
+            image_width=1920,
+            image_height=1080,
+        )
+        cam_geom = accord_cam_geom
+
+    test_image_path_list = []
+
+    if os.path.exists(test_image_path) and os.path.isfile(test_image_path):
+        test_image_path_list.append(test_image_path)
+    else:
+        test_image_path_list = glob.glob(os.path.join(test_image_path, "*.jpg"))
+
+    calib_lane_detector = CalibLaneDetector(cam_geom, debug=True)
+
+    rotate_180 = True
+    
+    for test_image_path in test_image_path_list:
+        frame = cv2.imread(test_image_path)
+        resized_image, original_image = calib_lane_detector.preprocess_image(frame, rotate_180)
+        postprocess_result = calib_lane_detector.detect(resized_image, original_image)
+        
+    
+    print("Done")
+
+
 
 def test_camera_calibration(test_image_path):
     import glob
@@ -892,4 +941,5 @@ def test_camera_calibration(test_image_path):
 if __name__ == "__main__":
     #test_virtual_camera()
     #test_camera_calibration("./output/route28-raw_hwy/")
-    test_detect_video(force_calib=True)
+    test_detect_video(force_calib=False)
+    #test_detector("./data/route28/road28_66_20250306_11_12_47_Pro_imgs")
