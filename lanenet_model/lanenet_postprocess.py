@@ -112,6 +112,29 @@ def _connect_components_analysis(image):
     )
 
 
+def fitting_line(line_x, line_y, fit_order=2, y_th=1.0):
+    """
+    fitting lane line
+    """
+    # 使用多项式拟合车道线
+    fitting_param0 = np.polyfit(line_x, line_y, fit_order)
+    line_y_fited = np.poly1d(fitting_param0)(line_x)
+    line_x_new = []
+    line_y_new = []
+
+    for i in range(len(line_y_fited)):
+        if abs(line_y_fited[i] - line_y[i]) < y_th:
+            line_x_new.append(line_x[i])
+            line_y_new.append(line_y[i])
+
+    if len(line_x_new) > 10:
+        fitting_param1 = np.polyfit(line_x_new, line_y_new, fit_order)
+        return fitting_param1
+    else:
+        print(f"Not enough points to fit line, line_xy_new: {len(line_x_new)}")
+        return None
+
+
 class _LaneFeat(object):
     """ """
 
@@ -797,7 +820,7 @@ class LaneNetPostProcessor(object):
                 print("cam_geom.camera_name: {}".format(cam_geom.camera_name))
                 fig =plt.figure(figsize=(10, 6), dpi=100)
                 # 生成高密度采样点（1000个点保证曲线连续）
-                MAX_X = 100
+                MAX_X = 60
                 poly_x = np.linspace(0, MAX_X, 1000)
                 for lane_index, coords in enumerate(lane_coords):
                     # get the min and max of the coords
@@ -855,19 +878,29 @@ class LaneNetPostProcessor(object):
                     # X为自变量，Y为因变量
                     if True:
                         # y = ax^2 + bx + c
-                        fit_param = np.polyfit(iso8855_roadXY_coords[:, 0], iso8855_roadXY_coords[:, 1], 2)
+                        #fit_param = np.polyfit(iso8855_roadXY_coords[:, 0], iso8855_roadXY_coords[:, 1], 2)
+                        fit_param = fitting_line(iso8855_roadXY_coords[:, 0], iso8855_roadXY_coords[:, 1], 2, y_th=0.5)
+                        if fit_param is None:
+                            print(f"Not enough points to fit line, lane {lane_index}")
+                            continue
                         if abs(fit_param[0]) > 0.003:
                             print("Fliter fit_param of lane {}: {}".format(lane_index, fit_param))
                             continue
                     else:
                         # y = bx + c
-                        fit_param = np.polyfit(iso8855_roadXY_coords[:, 0], iso8855_roadXY_coords[:, 1], 1)
+                        #fit_param = np.polyfit(iso8855_roadXY_coords[:, 0], iso8855_roadXY_coords[:, 1], 1)
+                        fit_param = fitting_line(iso8855_roadXY_coords[:, 0], iso8855_roadXY_coords[:, 1], 1)
+                        if fit_param is None:
+                            print(f"Not enough points to fit line, lane {lane_index}")
+                            continue
                         fit_param = np.array([0, fit_param[0], fit_param[1]])
 
                     fit_params.append(fit_param)
                     print("fit_param of lane {}: {}".format(lane_index, fit_param))
 
-                    fit_y = fit_param[0] * poly_x**2 + fit_param[1] * poly_x + fit_param[2]
+                    #fit_y = fit_param[0] * poly_x**2 + fit_param[1] * poly_x + fit_param[2]
+                    fit_y = np.poly1d(fit_param)(poly_x)
+                    
                     # 绘制连续曲线
                     plt.plot(fit_y, poly_x, 
                             color=tuple(lane_color),  # 转换为元组格式
