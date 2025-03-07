@@ -172,7 +172,9 @@ class CameraGeometry(object):
             with open(filename, 'r') as f:
                 for line in f:
                     if line.startswith("#Pitch_deg, Yaw_deg"):
-                        pitch_deg, yaw_deg = map(float, line.split(","))
+                        # example : #Pitch_deg, Yaw_deg, 1.325787143983882, 0.04819413497925701
+                        py_str = line.split("Yaw_deg,")[1]
+                        pitch_deg, yaw_deg = map(float, py_str.split(","))
                         continue
                     if line.startswith("#V, U, X, Y"):
                         continue
