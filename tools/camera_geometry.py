@@ -139,6 +139,7 @@ class CameraGeometry(object):
     def save_forward_map_to_file(self, filename):
         # Only save the point where X or Y is not 0
         with open(filename, 'w') as f:
+            f.write("#Pitch_deg, Yaw_deg, {}, {})\n".format(self.pitch_deg, self.yaw_deg))
             f.write("#V, U, X, Y\n")
             for v in range(self.image_height):
                 for u in range(self.image_width):
@@ -149,40 +150,48 @@ class CameraGeometry(object):
         print(f"Forward map saved to {filename}")
 
     def load_forward_map_from_file(self, filename):
-        cut_v = 0
-        forward_map_x = np.zeros((self.image_height, self.image_width), dtype=np.float32)
-        forward_map_y = np.zeros((self.image_height, self.image_width), dtype=np.float32)
-        road_points = []
-        with open(filename, 'r') as f:
-            for line in f:
-                if line.startswith("#V, U, X, Y"):
-                    continue
-                v, u, X, Y = map(float, line.split(","))
-                v = int(v)
-                u = int(u)
-                forward_map_x[v, u] = X
-                forward_map_y[v, u] = Y
-                if cut_v == 0:
-                    cut_v = v
-                road_points.append((X, Y, u, v))
+        try:
+            cut_v = 0
+            forward_map_x = np.zeros((self.image_height, self.image_width), dtype=np.float32)
+            forward_map_y = np.zeros((self.image_height, self.image_width), dtype=np.float32)
+            road_points = []
+            with open(filename, 'r') as f:
+                for line in f:
+                    if line.startswith("#Pitch_deg, Yaw_deg"):
+                        pitch_deg, yaw_deg = map(float, line.split(","))
+                        continue
+                    if line.startswith("#V, U, X, Y"):
+                        continue
+                    v, u, X, Y = map(float, line.split(","))
+                    v = int(v)
+                    u = int(u)
+                    forward_map_x[v, u] = X
+                    forward_map_y[v, u] = Y
+                    if cut_v == 0:
+                        cut_v = v
+                    road_points.append((X, Y, u, v))
 
-        road_points = np.array(road_points)
-        self.forward_map_x = forward_map_x
-        self.forward_map_y = forward_map_y
+            road_points = np.array(road_points)
+            self.forward_map_x = forward_map_x
+            self.forward_map_y = forward_map_y
 
-        # Get cut_v and road_points
-        self.cut_v = cut_v
-        # get slice of road_points where v == cut_v
-        cut_v_points = road_points[road_points[:, 3] == cut_v]
-        # find the point which Y is closest to 0
-        closest_point = cut_v_points[np.argmin(np.abs(cut_v_points[:, 1]))]
-        self.cut_dist = np.linalg.norm(closest_point[:2])
+            # Get cut_v and road_points
+            self.cut_v = cut_v
+            # get slice of road_points where v == cut_v
+            cut_v_points = road_points[road_points[:, 3] == cut_v]
+            # find the point which Y is closest to 0
+            closest_point = cut_v_points[np.argmin(np.abs(cut_v_points[:, 1]))]
+            self.cut_dist = np.linalg.norm(closest_point[:2])
 
-        self._precompute_inverse_mapping(road_points)
-        if self.debug:
-            print("Center point of the CUT_V: ", closest_point)
-            print("Cut distance: ", self.cut_dist)
-            print("Load forward map from file: {}".format(filename))
+            self._precompute_inverse_mapping(road_points)
+            if self.debug:
+                print("Center point of the CUT_V: ", closest_point)
+                print("Cut distance: ", self.cut_dist)
+                print("Load forward map from file: {}".format(filename))
+            return True
+        except Exception as e:
+            print("Error loading forward map from file: {}".format(e))
+            return False
 
                 
 

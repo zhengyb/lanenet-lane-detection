@@ -508,6 +508,8 @@ class LaneNetPostProcessor(object):
         data_source="tusimple",
         with_2d_lane_fit=False,
         cam_geom=CameraGeometry(camera_name=CameraName.INVALID, field_of_view_deg=45),
+        cut_v_start=0,
+        cut_v_end=0,
     ):
         """
 
@@ -517,6 +519,8 @@ class LaneNetPostProcessor(object):
         :param source_image:
         :param with_lane_fit:
         :param data_source:
+        :param cut_v_start: in pixels, original image height
+        :param cut_v_end: in pixels, original image height
         :return:
         """
 
@@ -530,21 +534,27 @@ class LaneNetPostProcessor(object):
 
         ORIGINAL_IMAGE_HEIGHT = source_image.shape[0]
         ORIGINAL_IMAGE_WIDTH = source_image.shape[1]
-        print("ORIGINAL_IMAGE_HEIGHT:")
-        print(ORIGINAL_IMAGE_HEIGHT)
-        print("ORIGINAL_IMAGE_WIDTH:")
-        print(ORIGINAL_IMAGE_WIDTH)
+        #print("ORIGINAL_IMAGE_HEIGHT:")
+        #print(ORIGINAL_IMAGE_HEIGHT)
+        #print("ORIGINAL_IMAGE_WIDTH:")
+        #print(ORIGINAL_IMAGE_WIDTH)
 
         # convert binary_seg_result
         binary_seg_result = np.array(binary_seg_result * 255, dtype=np.uint8)
         resized_height = binary_seg_result.shape[0]
 
-        # TODO: debug: set the bottom 1/3 of the image to 0
-        binary_seg_result[int(resized_height * 0.85):, :] = 0
-
-
         result["binary_seg_result"] = binary_seg_result
         result["instance_seg_result"] = make_instance_seg_img_visuable(instance_seg_result)
+
+        if cut_v_start == 0:
+            cut_v_start = int(ORIGINAL_IMAGE_HEIGHT * 0.5)
+        if cut_v_end == 0:
+            cut_v_end = int(ORIGINAL_IMAGE_HEIGHT * 0.85)
+        resized_height_factor = ORIGINAL_IMAGE_HEIGHT / 256
+        cut_v_start_resized = int(cut_v_start * resized_height_factor)
+        cut_v_end_resized = int(cut_v_end * resized_height_factor)
+
+        binary_seg_result[cut_v_start_resized:cut_v_end_resized, :] = 0
 
         if self._cfg.POSTPROCESS.MORPHOLOGICAL_PROCESS.ENABLE:
             # apply image morphology operation to fill in the hold and reduce the small area
