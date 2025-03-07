@@ -561,7 +561,7 @@ def test_virtual_camera():
 def test_detect_video(force_calib=False):
     #video_path = "./data/carla/calibration_video.mp4"
     video_path = "./data/route28/road28_66_20250306_11_12_47_Pro.mp4"
-    interval = 1.0 # seconds
+    interval = 0.5 # seconds
     rotate_180 = True
 
     # <video_name>_output.mp4
@@ -634,7 +634,7 @@ def test_detect_video(force_calib=False):
     if not out_video.isOpened():
         raise RuntimeError(f"无法创建视频文件，请检查编码器 {fourcc} 是否支持")
 
-    stop_frame_number = 8* 60 * fps
+    stop_frame_number = 10* 60 * fps
     start_frame_number = 6 * 60 * fps
 
     if force_calib:

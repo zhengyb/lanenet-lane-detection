@@ -820,8 +820,14 @@ class LaneNetPostProcessor(object):
                 print("cam_geom.camera_name: {}".format(cam_geom.camera_name))
                 fig =plt.figure(figsize=(10, 6), dpi=100)
                 # 生成高密度采样点（1000个点保证曲线连续）
-                MAX_X = 60
-                poly_x = np.linspace(0, MAX_X, 1000)
+                left_lane_y = 3.5
+                left_lane_index = None
+                right_lane_y = -3.5
+                right_lane_index = None
+                current_lane_x = 5 # 计算x=5m处的车道线
+
+                MAX_X = 30
+                poly_x = np.linspace(0, MAX_X, 100)
                 for lane_index, coords in enumerate(lane_coords):
                     # get the min and max of the coords
                     coords = np.array(coords)         
@@ -901,7 +907,15 @@ class LaneNetPostProcessor(object):
                     #fit_y = fit_param[0] * poly_x**2 + fit_param[1] * poly_x + fit_param[2]
                     fit_y = np.poly1d(fit_param)(poly_x)
                     
-                    # 绘制连续曲线
+                    cur_lane_feat_y = fit_param[0] * current_lane_x**2 + fit_param[1] * current_lane_x + fit_param[2]
+                    if cur_lane_feat_y < left_lane_y and cur_lane_feat_y > 0.0:
+                        left_lane_y = cur_lane_feat_y
+                        left_lane_index = lane_index
+                    elif cur_lane_feat_y > right_lane_y and cur_lane_feat_y < 0.0:
+                        right_lane_y = cur_lane_feat_y
+                        right_lane_index = lane_index
+
+                    # 绘制连续曲线 on the iso8855_roadXY_coords
                     plt.plot(fit_y, poly_x, 
                             color=tuple(lane_color),  # 转换为元组格式
                             linewidth=2.5,
@@ -924,7 +938,7 @@ class LaneNetPostProcessor(object):
                 ax = plt.gca()
                 ax.invert_xaxis()  # 新增这行
                 # 坐标轴设置
-                plt.xlim(10, -10)
+                plt.xlim(5, -5)
                 plt.ylim(-10, MAX_X)
                 plt.xlabel('Y (m)')
                 plt.ylabel('X (m)')
@@ -988,12 +1002,19 @@ class LaneNetPostProcessor(object):
                             continue
 
                         lane_color = self._color_map[lane_colors_index[index]].tolist()
+                        if lane_colors_index[index] == left_lane_index:
+                            thickness = -1
+                        elif lane_colors_index[index] == right_lane_index:
+                            thickness = -1
+                        else:
+                            thickness = 1
+
                         cv2.circle(
                             source_image,
                             (int(interpolation_src_pt_x), int(interpolation_src_pt_y)),
                             5,
                             lane_color,
-                            -1,
+                            thickness
                         )
         
             result["source_image"] = source_image
