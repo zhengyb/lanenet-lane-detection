@@ -115,6 +115,7 @@ class LaneDetector:
         if rotate_180:
             image = cv2.rotate(image, cv2.ROTATE_180)
         # TODO: undistort image
+        image = cv2.undistort(image, self.cg.intrinsic_matrix, self.cg.distortion_coefficients)
         resize_image = cv2.resize(
             image, (self.width, self.height), interpolation=cv2.INTER_LINEAR
         )
@@ -703,8 +704,7 @@ def test_detect_video(force_calib=False):
                     # draw a GREEN dot on the left top corner of the original image
                     cv2.circle(src_image, (50, 50), 30, (0, 255, 0), -1)
                     # display the length of the pitch and yaw history
-                    cv2.putText(src_image, f"P: {calib_lane_detector.estimated_pitch_deg:.2f} deg / Y: {calib_lane_detector.estimated_yaw_deg:.2f} deg, / \
-                                        C: {len(calib_lane_detector.pitch_yaw_history)}", 
+                    cv2.putText(src_image, f"P: {calib_lane_detector.estimated_pitch_deg:.2f} deg / Y: {calib_lane_detector.estimated_yaw_deg:.2f} deg, / C: {len(calib_lane_detector.pitch_yaw_history)}", 
                                         (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
                 roadframe_lane_image = postprocess_result["ipm_image"]
                 # resize to 500x300

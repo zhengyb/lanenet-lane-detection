@@ -17,6 +17,18 @@ def get_intrinsic_matrix4carla(image_width, image_height, field_of_view_deg=45):
     Cv = image_height / 2.0
     return np.array([[alpha, 0, Cu], [0, alpha, Cv], [0, 0, 1.0]])
 
+def get_distortion_coefficients(camera_name):
+    # return the distortion coefficients of the camera, a 1x5 numpy array
+    # Distortion coefficients filename formart: "camera_<name>_dist.json"
+    # Distortion coefficients file path: "./data/camera_<name>_dist.json"
+    file_path = "./data/camera_parameters/camera_{}_int.json".format(camera_name)
+    if not os.path.exists(file_path):
+        raise FileNotFoundError("Intrinsic matrix file not found: {}".format(file_path))
+    with open(file_path, 'r') as f:
+        data = json.load(f)
+        distortion_coefficients = np.array(data["center_camera-intrinsic"]["param"]["cam_dist"]["data"]).reshape(1, 5)
+        return distortion_coefficients
+    raise NotImplementedError("Not implemented")
 
 def get_intrinsic_matrix(camera_name):
     # return the intrinsic matrix of the camera, a 3x3 numpy array
@@ -71,8 +83,10 @@ class CameraGeometry(object):
             self.intrinsic_matrix = get_intrinsic_matrix4carla(
                 self.image_width, self.image_height, self.field_of_view_deg
             )
+            self.distortion_coefficients = np.zeros((1, 5))
         else:
             self.intrinsic_matrix = get_intrinsic_matrix(self.camera_name)
+            self.distortion_coefficients = get_distortion_coefficients(self.camera_name)
         self.inverse_intrinsic_matrix = np.linalg.inv(self.intrinsic_matrix)
         ## Note that "rotation_cam_to_road" has the math symbol R_{rc} in the book
         yaw = np.deg2rad(yaw_deg)
