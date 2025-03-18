@@ -1,23 +1,33 @@
 version: "3.8"
 services:
-  tensorflow:
+  adas:
     #image: nvcr.io/nvidia/tensorflow:23.03-tf1-py3
-    image: lanenet:latest
+    image: lanenet:0.3
     command: bash
-    volumes:
-      - /home/zyb/lanenet-lane-detection:/app
-    ports:
-      - 6006:6006
-    environment:
-      - PYTHONPATH=/app
-    ipc: host
+    shm_size: '2gb'  # 增加共享内存
     deploy:
       resources:
         reservations:
           devices:
             - driver: nvidia
-              count: 1
+              count: all
               capabilities: [gpu]
+    devices:
+      - "/dev/video0:/dev/video0:mwr"
+    volumes:
+      - /home/zyb/lanenet-lane-detection:/app
+      - /home/zyb/ByteTrack:/workspace/ByteTrack
+      - /home/zyb/YOLOX:/workspace/YOLOX
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+    network_mode: host
+    environment:
+      - PYTHONPATH=/app:/workspace/ByteTrack
+      - DISPLAY=${DISPLAY}
+      - XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR}
+    privileged: true
+    ports:
+      - 6006:6006
+    ipc: host
     ulimits:
       memlock:
         soft: -1
