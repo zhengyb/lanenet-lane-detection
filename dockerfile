@@ -36,7 +36,7 @@ RUN git clone https://github.com/zhengyb/ByteTrack.git \
     && git checkout -b dev origin/dev \
     && mkdir -p YOLOX_outputs/yolox_x_mix_det/track_vis \
     && sed -i "s/'cuda:6'/0/g" tools/demo_track.py \
-    && pip3 install -r requirements.txt -f https://download.pytorch.org/whl/torch_stable.html \
+    && pip3 install -r requirements.txt \
     && python3 setup.py develop \
     && pip3 install cython \
     && pip3 install 'git+https://github.com/cocodataset/cocoapi.git#subdirectory=PythonAPI' \
@@ -52,13 +52,14 @@ RUN git clone https://github.com/NVIDIA-AI-IOT/torch2trt \
     && git apply 8b9fb46ddbe99c2ddf3f1ed148c97435cbeb8fd3.patch \
     && python3 setup.py install
 
-RUN echo "root:root" | chpasswd \
-    && adduser --disabled-password --gecos "" "${USERNAME}" \
-    && echo "${USERNAME}:${USERNAME}" | chpasswd \
-    && echo "%${USERNAME}    ALL=(ALL)   NOPASSWD:    ALL" >> /etc/sudoers.d/${USERNAME} \
-    && chmod 0440 /etc/sudoers.d/${USERNAME}
-USER ${USERNAME}
-RUN sudo chown -R ${USERNAME}:${USERNAME} ${WORKDIR}
+#RUN echo "root:root" | chpasswd \
+#    && adduser --disabled-password --gecos "" "${USERNAME}" \
+#    && echo "${USERNAME}:${USERNAME}" | chpasswd \
+#    && echo "%${USERNAME}    ALL=(ALL)   NOPASSWD:    ALL" >> /etc/sudoers.d/${USERNAME} \
+#    && chmod 0440 /etc/sudoers.d/${USERNAME}
+#USER ${USERNAME}
+#RUN sudo chown -R ${USERNAME}:${USERNAME} ${WORKDIR}
+
 WORKDIR ${WORKDIR}
 
 
