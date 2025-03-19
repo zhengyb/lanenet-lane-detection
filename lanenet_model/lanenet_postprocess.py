@@ -550,7 +550,10 @@ class LaneNetPostProcessor(object):
         result = {
             "mask_image": None,
             "fit_params": None,
-            "source_image": None,
+            "source_image": source_image,
+            "ipm_image": None,
+            "left_lane_fit_param": None,
+            "right_lane_fit_param": None,
         }
 
         debug_image_dir = "/app/test/"
@@ -727,6 +730,8 @@ class LaneNetPostProcessor(object):
 
             # 3D lane fit
             fit_params = []
+            left_lane_fit_param = None
+            right_lane_fit_param = None
             src_lane_pts = []  # lane pts every single lane    
             lane_colors_index = []            
             if data_source == "tusimple":
@@ -911,9 +916,11 @@ class LaneNetPostProcessor(object):
                     if cur_lane_feat_y < left_lane_y and cur_lane_feat_y > 0.0:
                         left_lane_y = cur_lane_feat_y
                         left_lane_index = lane_index
+                        left_lane_fit_param = fit_param 
                     elif cur_lane_feat_y > right_lane_y and cur_lane_feat_y < 0.0:
                         right_lane_y = cur_lane_feat_y
                         right_lane_index = lane_index
+                        right_lane_fit_param = fit_param
 
                     # 绘制连续曲线 on the iso8855_roadXY_coords
                     plt.plot(fit_y, poly_x, 
@@ -952,6 +959,8 @@ class LaneNetPostProcessor(object):
                 result["source_image"] = source_image
                 result["mask_image"] = mask_image
                 result["fit_params"] = fit_params
+                result["left_lane_fit_param"] = None
+                result["right_lane_fit_param"] = None
                 print("data_source: {}".format(data_source))
                 raise ValueError("data_source: {} is not supported".format(data_source))
             
@@ -1021,5 +1030,7 @@ class LaneNetPostProcessor(object):
             result["mask_image"] = mask_image
             result["fit_params"] = fit_params
             result["ipm_image"] = ipm_image
+            result["left_lane_fit_param"] = left_lane_fit_param
+            result["right_lane_fit_param"] = right_lane_fit_param
 
         return result
