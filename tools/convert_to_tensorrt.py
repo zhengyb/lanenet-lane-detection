@@ -2,6 +2,8 @@ import tensorflow as tf
 import tensorflow.contrib.tensorrt as trt
 import os
 
+# TODO: support INT8
+
 def convert_to_tensorrt(
     pb_path: str,
     trt_path: str,
