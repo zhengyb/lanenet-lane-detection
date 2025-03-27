@@ -548,9 +548,9 @@ class LaneNetPostProcessor(object):
         """
 
         result = {
+            "source_image": source_image,
             "mask_image": None,
             "fit_params": None,
-            "source_image": source_image,
             "ipm_image": None,
             "left_lane_fit_param": None,
             "right_lane_fit_param": None,
@@ -638,7 +638,6 @@ class LaneNetPostProcessor(object):
             result["ipm_image"] = None
             result["mask_image"] = None
             result["fit_params"] = None
-            result["source_image"] = None
             return result
         
         result["mask_image"] = mask_image

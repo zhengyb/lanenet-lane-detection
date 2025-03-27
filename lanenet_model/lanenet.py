@@ -15,7 +15,7 @@ import numpy as np
 from lanenet_model import lanenet_back_end
 from lanenet_model import lanenet_front_end
 from semantic_segmentation_zoo import cnn_basenet
-
+from tools.utils import LOG
 
 class LaneNet(cnn_basenet.CNNBaseModel):
     """
@@ -130,6 +130,7 @@ class LaneNet_frozen:
                 graph_def.ParseFromString(f.read())
                 tf.import_graph_def(graph_def, name="")
 
+            LOG.info(f"Use the frozen model: {self._model_path}")
             # 获取输入输出张量
             self._input_tensor = self._graph.get_tensor_by_name(self._input_node_name)
             self._output_tensors = [
@@ -138,6 +139,7 @@ class LaneNet_frozen:
             ]
             
             # 配置会话参数
+            # TODO: 需要优化
             config = tf.ConfigProto(
                 allow_soft_placement=True,
                 gpu_options=tf.GPUOptions(

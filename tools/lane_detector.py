@@ -23,8 +23,8 @@ PITCH_YAW_HISTORY_SIZE = 100
 CUT_V_OFFSET = 20
 
 # filter the lanes those are not straight enough
-STRAIGHT_FIT_PARAM_THRESHOLD = [0.001, 10] # 0.003 is better than 0.01
-#STRAIGHT_FIT_PARAM_THRESHOLD = [0.01, 10]
+STRAIGHT_FIT_PARAM_THRESHOLD = [0.001, 10]  # 0.003 is better than 0.01
+# STRAIGHT_FIT_PARAM_THRESHOLD = [0.01, 10]
 
 
 class LaneDetector:
@@ -48,6 +48,11 @@ class LaneDetector:
         self.sess = None
         self.saver = None
         self.model = self._init_model()
+        # Initialize postprocessor
+        camera_name = self.cg.camera_name
+        self.postprocessor = lanenet_postprocess.LaneNetPostProcessor(
+            cfg=CFG, ipm_remap_file_path=self._get_ipm_remap_file_path(camera_name)
+        )        
 
     def _init_model(self):
         # Initialize tensorflow session and model once
@@ -62,20 +67,6 @@ class LaneDetector:
         )
         self.binary_seg_ret = binary_seg_ret
         self.instance_seg_ret = instance_seg_ret
-
-        # Initialize postprocessor
-        camera_name = self.cg.camera_name
-        self.postprocessor = lanenet_postprocess.LaneNetPostProcessor(
-            cfg=CFG, ipm_remap_file_path=self._get_ipm_remap_file_path(camera_name)
-        )
-
-        # Set session configuration
-        sess_config = tf.ConfigProto()
-        sess_config.gpu_options.per_process_gpu_memory_fraction = (
-            CFG.GPU.GPU_MEMORY_FRACTION
-        )
-        sess_config.gpu_options.allow_growth = CFG.GPU.TF_ALLOW_GROWTH
-        sess_config.gpu_options.allocator_type = "BFC"
 
         # Set sess configuration
         sess_config = tf.ConfigProto()
@@ -97,7 +88,8 @@ class LaneDetector:
         self.saver = tf.train.Saver(variables_to_restore)
         with self.sess.as_default():
             self.saver.restore(self.sess, self.model_path)
-        pass
+        
+        return net
 
     def _get_ipm_remap_file_path(self, camera_name):
         # ipm remap file path: "./data/camera_<name>_ipm_remap.yml"
@@ -111,12 +103,14 @@ class LaneDetector:
             return None, None
         image, original_image = self.preprocess_image(image, rotate_180)
         return image, original_image
-    
+
     def preprocess_image(self, image, rotate_180=False):
         if rotate_180:
             image = cv2.rotate(image, cv2.ROTATE_180)
         # TODO: undistort image
-        image = cv2.undistort(image, self.cg.intrinsic_matrix, self.cg.distortion_coefficients)
+        image = cv2.undistort(
+            image, self.cg.intrinsic_matrix, self.cg.distortion_coefficients
+        )
         resize_image = cv2.resize(
             image, (self.width, self.height), interpolation=cv2.INTER_LINEAR
         )
@@ -191,6 +185,33 @@ class LaneDetector:
         # save the postprocess result to an image file
 
 
+class LaneDetector_frozen(LaneDetector):
+    def __init__(
+        self,
+        cam_geom=CameraGeometry(CameraName.CARLA, field_of_view_deg=45),
+        model_path="./model/tusimple/bisenetv2_lanenet/lanenet_frozen_model.pb",
+        debug=False,
+    ):
+        super().__init__(cam_geom, model_path, debug)
+
+    def _init_model(self):
+        # Initialize tensorflow session and model once
+        tf.reset_default_graph()
+        # Initialize LaneNet
+        self.input_tensor = tf.placeholder(
+            dtype=tf.float32, shape=[1, self.height, self.width, 3], name="input_tensor"
+        )
+        model = lanenet.LaneNet_frozen(self.model_path)
+
+        return model
+
+    def _predict(self, img):
+        binary_seg_image, instance_seg_image = self.model.inference(img)
+        if binary_seg_image is None or len(binary_seg_image) == 0:
+            return None, None
+        return binary_seg_image[0], instance_seg_image[0]
+
+
 def vanishing_point_calculation(lane_line_fit_params):
     # calculate the vanishing point of each two lanes
     vp = []
@@ -255,7 +276,6 @@ def filter_vp_list(vp_list, distance_threshold=20):
     return filtered_vp_mean, filtered_vp_list
 
 
-
 def save_pitch_yaw_history(pitch_yaw_history, filename):
     with open(filename, "w") as f:
         f.write("#Pitch_rad, Yaw_rad\n")
@@ -263,6 +283,7 @@ def save_pitch_yaw_history(pitch_yaw_history, filename):
             f.write("{}, {}\n".format(pitch, yaw))
 
     print("pitch_yaw_history saved to {}".format(filename))
+
 
 def process_pitch_yaw_history(pitch_yaw_history, std_filter_factor=1.0):
     pitch_yaw_history = np.array(pitch_yaw_history)
@@ -274,13 +295,25 @@ def process_pitch_yaw_history(pitch_yaw_history, std_filter_factor=1.0):
     estimated_pitch = np.mean(pitch_history)
     estimated_yaw = np.mean(yaw_history)
     # remove the outliers
-    #pitch_history = pitch_history[np.abs(pitch_history - estimated_pitch) < std_filter_factor * np.std(pitch_history)]
-    #yaw_history = yaw_history[np.abs(yaw_history - estimated_yaw) < std_filter_factor * np.std(yaw_history)]
+    # pitch_history = pitch_history[np.abs(pitch_history - estimated_pitch) < std_filter_factor * np.std(pitch_history)]
+    # yaw_history = yaw_history[np.abs(yaw_history - estimated_yaw) < std_filter_factor * np.std(yaw_history)]
     filtered_pitch_yaw_history = pitch_yaw_history[
-        (pitch_yaw_history[:, 0] > estimated_pitch - std_filter_factor * np.std(pitch_history)) &
-        (pitch_yaw_history[:, 0] < estimated_pitch + std_filter_factor * np.std(pitch_history)) &
-        (pitch_yaw_history[:, 1] > estimated_yaw - std_filter_factor * np.std(yaw_history)) &
-        (pitch_yaw_history[:, 1] < estimated_yaw + std_filter_factor * np.std(yaw_history))
+        (
+            pitch_yaw_history[:, 0]
+            > estimated_pitch - std_filter_factor * np.std(pitch_history)
+        )
+        & (
+            pitch_yaw_history[:, 0]
+            < estimated_pitch + std_filter_factor * np.std(pitch_history)
+        )
+        & (
+            pitch_yaw_history[:, 1]
+            > estimated_yaw - std_filter_factor * np.std(yaw_history)
+        )
+        & (
+            pitch_yaw_history[:, 1]
+            < estimated_yaw + std_filter_factor * np.std(yaw_history)
+        )
     ]
 
     # 重新计算pitch和yaw的平均值
@@ -292,8 +325,7 @@ def process_pitch_yaw_history(pitch_yaw_history, std_filter_factor=1.0):
     return estimated_pitch_deg, estimated_yaw_deg
 
 
-
-class CalibLaneDetector(LaneDetector):
+class CalibLaneDetector(LaneDetector_frozen):
     def __init__(
         self,
         cam_geom=CameraGeometry(camera_name=CameraName.CARLA, field_of_view_deg=45),
@@ -304,7 +336,7 @@ class CalibLaneDetector(LaneDetector):
         self.estimated_pitch_deg = 0
         self.estimated_yaw_deg = 0
         self.mean_residuals_thresh = 15
-        #self.update_cam_geometry()
+        # self.update_cam_geometry()
         self.pitch_yaw_history = []
         self.calibration_success = False
         self.forward_file_path = self.cg.get_forward_map_filename()
@@ -365,9 +397,7 @@ class CalibLaneDetector(LaneDetector):
 
             # Convert tuple coordinates to numpy array
             # Original format: (y_coords, x_coords)
-            lane_points = np.vstack(
-                resized_lane_coords
-            ).T  
+            lane_points = np.vstack(resized_lane_coords).T
 
             # filter the lanes those are not straight enough
             if abs(fit_param[0]) > STRAIGHT_FIT_PARAM_THRESHOLD[0]:
@@ -382,7 +412,11 @@ class CalibLaneDetector(LaneDetector):
             # Fit: x = a*y + b
             straight_fit_param = np.polyfit(lane_points[:, 0], lane_points[:, 1], 1)
             # TODO: Filter out lanes on straight line
-            print("straight_fit_param for lane {}: {}".format(lane_index, straight_fit_param))
+            print(
+                "straight_fit_param for lane {}: {}".format(
+                    lane_index, straight_fit_param
+                )
+            )
             straight_lanes.append(lane_points)
             straight_lane_fit_params.append(straight_fit_param)
             straight_lane_colors.append(lane_color)
@@ -390,7 +424,7 @@ class CalibLaneDetector(LaneDetector):
         if len(straight_lanes) < 2:
             print("No enough straight lanes to calculate vanishing point.")
             return None, postprocess_result
-        
+
         left_lane_idxs = []
         right_lane_idxs = []
         for s_lane_index in range(len(straight_lane_fit_params)):
@@ -420,8 +454,6 @@ class CalibLaneDetector(LaneDetector):
         if len(right_lane_idxs) == 0:
             print("No enough right lane to calculate vanishing point.")
             return None, postprocess_result
-
-
 
         if self.debug:
             for s_lane_index in range(len(straight_lane_fit_params)):
@@ -492,15 +524,18 @@ class CalibLaneDetector(LaneDetector):
 
     def add_to_pitch_yaw_history(self, pitch, yaw):
         self.pitch_yaw_history.append([pitch, yaw])
-        if len(self.pitch_yaw_history) > PITCH_YAW_HISTORY_SIZE: #50:
-            save_pitch_yaw_history(self.pitch_yaw_history, "./output/pitch_yaw_history.txt")
-            estimated_pitch_deg, estimated_yaw_deg = process_pitch_yaw_history(self.pitch_yaw_history,
-                                                                               std_filter_factor=1.3)
+        if len(self.pitch_yaw_history) > PITCH_YAW_HISTORY_SIZE:  # 50:
+            save_pitch_yaw_history(
+                self.pitch_yaw_history, "./output/pitch_yaw_history.txt"
+            )
+            estimated_pitch_deg, estimated_yaw_deg = process_pitch_yaw_history(
+                self.pitch_yaw_history, std_filter_factor=1.3
+            )
             self.estimated_pitch_deg = estimated_pitch_deg
             self.estimated_yaw_deg = estimated_yaw_deg
             self.update_cam_geometry()
             self.calibration_success = True
-            #self.pitch_yaw_history = [] # debug
+            # self.pitch_yaw_history = [] # debug
             print("yaw, pitch = ", self.estimated_yaw_deg, self.estimated_pitch_deg)
             self.cg.precompute_bidirectional_mapping()
             self.cg.save_forward_map_to_file(self.cg.get_forward_map_filename())
@@ -531,18 +566,18 @@ class CalibLaneDetector(LaneDetector):
             pitch_deg=self.estimated_pitch_deg,
             yaw_deg=self.estimated_yaw_deg,
         )
-        #self.cut_v, self.grid = self.cg.precompute_grid()
+        # self.cut_v, self.grid = self.cg.precompute_grid()
 
 
 def test_virtual_camera():
-    test_image_path = "./data/carla_vp_calib01.png"    
-    #test_image_path = "./data/carla/calibration_video_imgs/frame_00011033ms.jpg"
+    test_image_path = "./data/carla_vp_calib01.png"
+    # test_image_path = "./data/carla/calibration_video_imgs/frame_00011033ms.jpg"
     carla_cam_geom = CameraGeometry(
         camera_name=CameraName.CARLA,
         height=1.3,
         roll_deg=0,
-        pitch_deg=-5.0, # -5.0
-        yaw_deg=-2.0, # -2.0
+        pitch_deg=-5.0,  # -5.0
+        yaw_deg=-2.0,  # -2.0
         image_width=1024,
         image_height=512,
         field_of_view_deg=45,
@@ -550,18 +585,22 @@ def test_virtual_camera():
     print("Precompute bidirectional mapping...")
     carla_cam_geom.precompute_bidirectional_mapping()
 
-    print("is_forward_map_precomputed: {}".format(carla_cam_geom.is_forward_map_precomputed()))
-    
+    print(
+        "is_forward_map_precomputed: {}".format(
+            carla_cam_geom.is_forward_map_precomputed()
+        )
+    )
+
     calib_lane_detector = CalibLaneDetector(carla_cam_geom, debug=True)
     # Use the calibrated camera geometry to detect the lane lines in the image
     print("Use the calibrated camera geometry to detect the lane lines in the image...")
-    calib_lane_detector.detect_from_file(test_image_path)    
+    calib_lane_detector.detect_from_file(test_image_path)
 
 
 def test_detect_video(force_calib=False):
-    #video_path = "./data/carla/calibration_video.mp4"
+    # video_path = "./data/carla/calibration_video.mp4"
     video_path = "./data/route28/road28_66_20250306_11_12_47_Pro.mp4"
-    interval = 0.5 # seconds
+    interval = 0.5  # seconds
     rotate_180 = True
 
     # <video_name>_output.mp4
@@ -571,7 +610,7 @@ def test_detect_video(force_calib=False):
     if False:
         carla_cam_geom = CameraGeometry(
             camera_name=CameraName.CARLA,
-            height=1.3, # meters
+            height=1.3,  # meters
             roll_deg=0,
             image_width=1024,
             image_height=512,
@@ -581,7 +620,7 @@ def test_detect_video(force_calib=False):
     else:
         accord_cam_geom = CameraGeometry(
             camera_name=CameraName.ACCORD_LENOVO,
-            height=1.2, # meters
+            height=1.2,  # meters
             roll_deg=0,
             image_width=1920,
             image_height=1080,
@@ -593,26 +632,28 @@ def test_detect_video(force_calib=False):
     if not cap.isOpened():
         print(f"Error: Could not open video file {video_path}")
         return
-    
+
     # Get video properties
     fps = int(cap.get(cv2.CAP_PROP_FPS))
     frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    duration = frame_count/fps
-    
+    duration = frame_count / fps
+
     print(f"Video FPS: {fps}")
     print(f"Total frames: {frame_count}")
     print(f"Duration: {duration:.2f} seconds")
-    
+
     # Calculate frame interval
     frame_interval = int(fps * interval)
 
-    calib_lane_detector = CalibLaneDetector(cam_geom, debug=True)
-    
+    calib_lane_detector = CalibLaneDetector(cam_geom, 
+                                            model_path="./model/tusimple/bisenetv2_lanenet/lanenet_frozen_model.pb",
+                                            debug=True)
+
     frame_number = 0
     saved_count = 0
-    
+
     # create a new output video file
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     output_fps = int(1.0 / interval)
 
     try:
@@ -620,21 +661,27 @@ def test_detect_video(force_calib=False):
         os.remove(roadframe_video_path)
     except:
         pass
-    out_video = cv2.VideoWriter(output_video_path, fourcc, output_fps, 
-                                (cam_geom.image_width, cam_geom.image_height),
-                                isColor=True)
-    
-    roadframe_video = cv2.VideoWriter(roadframe_video_path, fourcc, output_fps, 
-                                (1000, 600),
-                                isColor=True)
-    
-    empty_frame = np.zeros((cam_geom.image_height, cam_geom.image_width, 3), dtype=np.uint8)
-    
+    out_video = cv2.VideoWriter(
+        output_video_path,
+        fourcc,
+        output_fps,
+        (cam_geom.image_width, cam_geom.image_height),
+        isColor=True,
+    )
+
+    roadframe_video = cv2.VideoWriter(
+        roadframe_video_path, fourcc, output_fps, (1000, 600), isColor=True
+    )
+
+    empty_frame = np.zeros(
+        (cam_geom.image_height, cam_geom.image_width, 3), dtype=np.uint8
+    )
+
     # 添加写入检查
     if not out_video.isOpened():
         raise RuntimeError(f"无法创建视频文件，请检查编码器 {fourcc} 是否支持")
 
-    stop_frame_number = 10* 60 * fps
+    stop_frame_number = 8 * 60 * fps
     start_frame_number = 6 * 60 * fps
 
     if force_calib:
@@ -647,75 +694,147 @@ def test_detect_video(force_calib=False):
         ret, frame = cap.read()
         if not ret:
             break
-        
+
         # debug:
         if frame_number > stop_frame_number:
             break
-        
+
         # skip the first 6 minutes
         if frame_number < start_frame_number:
             frame_number += 1
             continue
         # Process frame at specified interval
-        if frame_number % frame_interval == 0:            
+        if frame_number % frame_interval == 0:
             print(f"Processing frame {frame_number}...")
             src_image = None
             raw_image = frame.copy()
-            resized_image, original_image = calib_lane_detector.preprocess_image(frame, rotate_180)
+            resized_image, original_image = calib_lane_detector.preprocess_image(
+                frame, rotate_180
+            )
             if not calib_lane_detector.calibration_success:
                 # TODO: in the product case, only used the images while the vehicle is moving faster than 30 km/h to calibrate the camera
-                vp, postprocess_result = calib_lane_detector.detect_vanishing_point(resized_image, original_image)
+                vp, postprocess_result = calib_lane_detector.detect_vanishing_point(
+                    resized_image, original_image
+                )
                 src_image = postprocess_result["source_image"]
                 # display the frame number
-                cv2.putText(src_image, f"F#: {frame_number:06d}", (100, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+                cv2.putText(
+                    src_image,
+                    f"F#: {frame_number:06d}",
+                    (100, 50),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    1,
+                    (0, 255, 0),
+                    2,
+                )
                 if vp is not None:
                     # draw the vanishing point on the original image
                     cv2.circle(src_image, (int(vp[0]), int(vp[1])), 5, (0, 255, 0), -1)
-                    pitch, yaw = calib_lane_detector.get_pitch_yaw_from_vp(vp[0], vp[1]) # in radian
+                    pitch, yaw = calib_lane_detector.get_pitch_yaw_from_vp(
+                        vp[0], vp[1]
+                    )  # in radian
                     calib_lane_detector.add_to_pitch_yaw_history(pitch, yaw)
-                    
+
                     if not calib_lane_detector.calibration_success:
                         # draw a RED dot on the left top corner of the original image
                         cv2.circle(src_image, (50, 50), 30, (0, 0, 255), -1)
                         # display the length of the pitch and yaw history
-                        cv2.putText(src_image, f"P: {np.rad2deg(pitch):.2f} deg / Y: {np.rad2deg(yaw):.2f} deg, / C: {len(calib_lane_detector.pitch_yaw_history)}", 
-                                        (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+                        cv2.putText(
+                            src_image,
+                            f"P: {np.rad2deg(pitch):.2f} deg / Y: {np.rad2deg(yaw):.2f} deg, / C: {len(calib_lane_detector.pitch_yaw_history)}",
+                            (50, 100),
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            1,
+                            (0, 255, 0),
+                            2,
+                        )
                     else:
                         # draw a GREEN dot on the left top corner of the original image
                         cv2.circle(src_image, (50, 50), 30, (0, 255, 0), -1)
                         # display the length of the pitch and yaw history
-                        cv2.putText(src_image, f"P: {calib_lane_detector.estimated_pitch_deg:.2f} deg / Y: {calib_lane_detector.estimated_yaw_deg:.2f} deg, / C: {len(calib_lane_detector.pitch_yaw_history)}", 
-                                        (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-                    cv2.imwrite(f"./output/route28-vp_calib_{frame_number:06d}.jpg", src_image)
-                    cv2.imwrite(f"./output/route28-raw_image_{frame_number:06d}.jpg", raw_image)
+                        cv2.putText(
+                            src_image,
+                            f"P: {calib_lane_detector.estimated_pitch_deg:.2f} deg / Y: {calib_lane_detector.estimated_yaw_deg:.2f} deg, / C: {len(calib_lane_detector.pitch_yaw_history)}",
+                            (50, 100),
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            1,
+                            (0, 255, 0),
+                            2,
+                        )
+                    cv2.imwrite(
+                        f"./output/route28-vp_calib_{frame_number:06d}.jpg", src_image
+                    )
+                    cv2.imwrite(
+                        f"./output/route28-raw_image_{frame_number:06d}.jpg", raw_image
+                    )
                 else:
                     # draw a RED dot on the left top corner of the original image
                     cv2.circle(src_image, (50, 50), 30, (0, 0, 255), -1)
                     # display the length of the pitch and yaw history
-                    cv2.putText(src_image, f"C: {len(calib_lane_detector.pitch_yaw_history)}", 
-                                        (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+                    cv2.putText(
+                        src_image,
+                        f"C: {len(calib_lane_detector.pitch_yaw_history)}",
+                        (50, 100),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        1,
+                        (0, 255, 0),
+                        2,
+                    )
             else:
-                postprocess_result = calib_lane_detector.detect(resized_image, original_image)
-                src_image = postprocess_result["source_image"] 
+                postprocess_result = calib_lane_detector.detect(
+                    resized_image, original_image
+                )
+                src_image = postprocess_result["source_image"]
                 # display the frame number
-                cv2.putText(src_image, f"Frame#: {frame_number:06d}", (100, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-                    
+                cv2.putText(
+                    src_image,
+                    f"Frame#: {frame_number:06d}",
+                    (100, 50),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    1,
+                    (0, 255, 0),
+                    2,
+                )
+
                 # draw a line at cut_v
-                cv2.line(src_image, (0, calib_lane_detector.cg.cut_v+CUT_V_OFFSET), (cam_geom.image_width, calib_lane_detector.cg.cut_v+CUT_V_OFFSET), (0, 0, 255), 1)
+                cv2.line(
+                    src_image,
+                    (0, calib_lane_detector.cg.cut_v + CUT_V_OFFSET),
+                    (cam_geom.image_width, calib_lane_detector.cg.cut_v + CUT_V_OFFSET),
+                    (0, 0, 255),
+                    1,
+                )
                 # draw a line at 0.8 * cam_geom.image_height
-                cv2.line(src_image, (0, int(0.8 * cam_geom.image_height)), (cam_geom.image_width, int(0.8 * cam_geom.image_height)), (0, 0, 255), 1)
-                if calib_lane_detector.estimated_pitch_deg != 0.0 and calib_lane_detector.estimated_yaw_deg != 0.0:
+                cv2.line(
+                    src_image,
+                    (0, int(0.8 * cam_geom.image_height)),
+                    (cam_geom.image_width, int(0.8 * cam_geom.image_height)),
+                    (0, 0, 255),
+                    1,
+                )
+                if (
+                    calib_lane_detector.estimated_pitch_deg != 0.0
+                    and calib_lane_detector.estimated_yaw_deg != 0.0
+                ):
                     # draw a GREEN dot on the left top corner of the original image
                     cv2.circle(src_image, (50, 50), 30, (0, 255, 0), -1)
                     # display the length of the pitch and yaw history
-                    cv2.putText(src_image, f"P: {calib_lane_detector.estimated_pitch_deg:.2f} deg / Y: {calib_lane_detector.estimated_yaw_deg:.2f} deg, / C: {len(calib_lane_detector.pitch_yaw_history)}", 
-                                        (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+                    cv2.putText(
+                        src_image,
+                        f"P: {calib_lane_detector.estimated_pitch_deg:.2f} deg / Y: {calib_lane_detector.estimated_yaw_deg:.2f} deg, / C: {len(calib_lane_detector.pitch_yaw_history)}",
+                        (50, 100),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        1,
+                        (0, 255, 0),
+                        2,
+                    )
                 roadframe_lane_image = postprocess_result["ipm_image"]
-                # resize to 500x300
-                roadframe_lane_image = cv2.resize(roadframe_lane_image, (500, 300))
-                #roadframe_video.write(roadframe_lane_image)
-                # cover the source image with the roadframe_lane_image at the top right corner
-                src_image[0:300, -500:] = roadframe_lane_image
+                if roadframe_lane_image is not None:
+                    # resize to 500x300
+                    roadframe_lane_image = cv2.resize(roadframe_lane_image, (500, 300))
+                    # roadframe_video.write(roadframe_lane_image)
+                    # cover the source image with the roadframe_lane_image at the top right corner
+                    src_image[0:300, -500:] = roadframe_lane_image
             # 在 out_video.write(src_image) 前添加：
             if src_image.dtype != np.uint8:
                 src_image = src_image.astype(np.uint8)
@@ -732,7 +851,7 @@ def test_detect_video(force_calib=False):
             out_video.write(src_image)
             saved_count += 1
         frame_number += 1
-    
+
     # Release resources
     cap.release()
     out_video.release()
@@ -742,13 +861,13 @@ def test_detect_video(force_calib=False):
     print(f"\nProcessing complete. Saved {saved_count} frames.")
 
 
-
 def test_detector(test_image_path):
     import glob
+
     if False:
         carla_cam_geom = CameraGeometry(
             camera_name=CameraName.CARLA,
-            height=1.3, # meters
+            height=1.3,  # meters
             roll_deg=0,
             image_width=1024,
             image_height=512,
@@ -758,7 +877,7 @@ def test_detector(test_image_path):
     else:
         accord_cam_geom = CameraGeometry(
             camera_name=CameraName.ACCORD_LENOVO,
-            height=1.2, # meters
+            height=1.2,  # meters
             roll_deg=0,
             image_width=1920,
             image_height=1080,
@@ -775,15 +894,15 @@ def test_detector(test_image_path):
     calib_lane_detector = CalibLaneDetector(cam_geom, debug=True)
 
     rotate_180 = True
-    
+
     for test_image_path in test_image_path_list:
         frame = cv2.imread(test_image_path)
-        resized_image, original_image = calib_lane_detector.preprocess_image(frame, rotate_180)
+        resized_image, original_image = calib_lane_detector.preprocess_image(
+            frame, rotate_180
+        )
         postprocess_result = calib_lane_detector.detect(resized_image, original_image)
-        
-    
-    print("Done")
 
+    print("Done")
 
 
 def test_camera_calibration(test_image_path):
@@ -791,16 +910,16 @@ def test_camera_calibration(test_image_path):
 
     # test_image_path = "./data/carla_vp_calib01.png"
     # test_image_path = "./data/route28/vp_calib4.jpg"
-    #test_image_path = "./output/route28/route28-raw_image_003420.jpg"
+    # test_image_path = "./output/route28/route28-raw_image_003420.jpg"
 
-    #hard_images = [
+    # hard_images = [
     #    "./output/route28/route28-raw_image_003390.jpg",
-    #]
+    # ]
 
     if False:
         carla_cam_geom = CameraGeometry(
             camera_name=CameraName.CARLA,
-            height=1.3, # meters
+            height=1.3,  # meters
             roll_deg=0,
             image_width=1024,
             image_height=512,
@@ -810,7 +929,7 @@ def test_camera_calibration(test_image_path):
     else:
         accord_cam_geom = CameraGeometry(
             camera_name=CameraName.ACCORD_LENOVO,
-            height=1.2, # meters
+            height=1.2,  # meters
             roll_deg=0,
             image_width=1920,
             image_height=1080,
@@ -819,7 +938,6 @@ def test_camera_calibration(test_image_path):
 
     test_image_path_list = []
 
-
     calib_lane_detector = CalibLaneDetector(cam_geom, debug=True)
 
     if os.path.exists(test_image_path) and os.path.isfile(test_image_path):
@@ -827,10 +945,9 @@ def test_camera_calibration(test_image_path):
     else:
         test_image_path_list = glob.glob(os.path.join(test_image_path, "*.jpg"))
 
-
     for test_image_path in test_image_path_list:
-        filtered_vp_mean, postprocess_result = calib_lane_detector.detect_vanishing_point_from_file(
-            test_image_path
+        filtered_vp_mean, postprocess_result = (
+            calib_lane_detector.detect_vanishing_point_from_file(test_image_path)
         )
 
         if filtered_vp_mean is None:
@@ -841,7 +958,11 @@ def test_camera_calibration(test_image_path):
                 filtered_vp_mean[0], filtered_vp_mean[1]
             )
             calib_lane_detector.add_to_pitch_yaw_history(pitch, yaw)
-            print("### pitch, yaw history length: {}".format(len(calib_lane_detector.pitch_yaw_history)))
+            print(
+                "### pitch, yaw history length: {}".format(
+                    len(calib_lane_detector.pitch_yaw_history)
+                )
+            )
             if calib_lane_detector.calibration_success:
                 print("Camera calibration success.")
                 print("pitch, yaw history (degree):")
@@ -849,7 +970,9 @@ def test_camera_calibration(test_image_path):
                     print(f"\t{np.rad2deg(pitch):.2f}, {np.rad2deg(yaw):.2f}")
 
                 print("estimated pitch, yaw (degree):")
-                print(f"\t{calib_lane_detector.estimated_pitch_deg:.2f}, {calib_lane_detector.estimated_yaw_deg:.2f}")
+                print(
+                    f"\t{calib_lane_detector.estimated_pitch_deg:.2f}, {calib_lane_detector.estimated_yaw_deg:.2f}"
+                )
                 break
 
     exit()
@@ -936,10 +1059,8 @@ def test_camera_calibration(test_image_path):
     calib_lane_detector.detect_from_file(test_image_path)
 
 
-
-
 if __name__ == "__main__":
-    #test_virtual_camera()
-    #test_camera_calibration("./output/route28-raw_hwy/")
+    # test_virtual_camera()
+    # test_camera_calibration("./output/route28-raw_hwy/")
     test_detect_video(force_calib=False)
-    #test_detector("./data/route28/road28_66_20250306_11_12_47_Pro_imgs")
+    # test_detector("./data/route28/road28_66_20250306_11_12_47_Pro_imgs")
