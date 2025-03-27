@@ -8,6 +8,7 @@
 """
 LanetNet multi gpu trainner for cityscapes dataset
 """
+
 import os
 import os.path as ops
 import shutil
@@ -30,25 +31,32 @@ class LaneNetTusimpleMultiTrainer(object):
     """
     init lanenet multi gpu trainner
     """
+
     def __init__(self, cfg):
         """
         initialize lanenet multi gpu trainner
         """
         self._cfg = cfg
         # define solver params and dataset
-        self._train_dataset = lanenet_data_feed_pipline.LaneNetDataFeeder(flags='train')
-        self._val_dataset = lanenet_data_feed_pipline.LaneNetDataFeeder(flags='val')
+        self._train_dataset = lanenet_data_feed_pipline.LaneNetDataFeeder(flags="train")
+        self._val_dataset = lanenet_data_feed_pipline.LaneNetDataFeeder(flags="val")
         self._steps_per_epoch = len(self._train_dataset)
         self._val_steps_per_epoch = len(self._val_dataset)
 
-        self._model_name = '{:s}_{:s}'.format(self._cfg.MODEL.FRONT_END, self._cfg.MODEL.MODEL_NAME)
+        self._model_name = "{:s}_{:s}".format(
+            self._cfg.MODEL.FRONT_END, self._cfg.MODEL.MODEL_NAME
+        )
 
         self._train_epoch_nums = self._cfg.TRAIN.EPOCH_NUMS
         self._batch_size = self._cfg.TRAIN.BATCH_SIZE
         self._val_batch_size = self._cfg.TRAIN.VAL_BATCH_SIZE
         self._snapshot_epoch = self._cfg.TRAIN.SNAPSHOT_EPOCH
-        self._model_save_dir = ops.join(self._cfg.TRAIN.MODEL_SAVE_DIR, self._model_name)
-        self._tboard_save_dir = ops.join(self._cfg.TRAIN.TBOARD_SAVE_DIR, self._model_name)
+        self._model_save_dir = ops.join(
+            self._cfg.TRAIN.MODEL_SAVE_DIR, self._model_name
+        )
+        self._tboard_save_dir = ops.join(
+            self._cfg.TRAIN.TBOARD_SAVE_DIR, self._model_name
+        )
         self._enable_miou = self._cfg.TRAIN.COMPUTE_MIOU.ENABLE
         if self._enable_miou:
             self._record_miou_epoch = self._cfg.TRAIN.COMPUTE_MIOU.EPOCH
@@ -81,29 +89,34 @@ class LaneNetTusimpleMultiTrainer(object):
 
         # define tensorflow session
         sess_config = tf.ConfigProto(allow_soft_placement=True)
-        sess_config.gpu_options.per_process_gpu_memory_fraction = self._cfg.GPU.GPU_MEMORY_FRACTION
+        sess_config.gpu_options.per_process_gpu_memory_fraction = (
+            self._cfg.GPU.GPU_MEMORY_FRACTION
+        )
         sess_config.gpu_options.allow_growth = self._cfg.GPU.TF_ALLOW_GROWTH
-        sess_config.gpu_options.allocator_type = 'BFC'
+        sess_config.gpu_options.allocator_type = "BFC"
         self._sess = tf.Session(config=sess_config)
 
         # define graph input tensor
-        with tf.variable_scope(name_or_scope='graph_input_node'):
+        with tf.variable_scope(name_or_scope="graph_input_node"):
             self._input_src_image_list = []
             self._input_binary_label_image_list = []
             self._input_instance_label_image_list = []
             for i in range(self._gpu_nums):
-                src_imgs, binary_label_imgs, instance_label_imgs = self._train_dataset.next_batch(
-                    batch_size=self._batch_size_per_gpu
+                src_imgs, binary_label_imgs, instance_label_imgs = (
+                    self._train_dataset.next_batch(batch_size=self._batch_size_per_gpu)
                 )
                 self._input_src_image_list.append(src_imgs)
                 self._input_binary_label_image_list.append(binary_label_imgs)
                 self._input_instance_label_image_list.append(instance_label_imgs)
-            self._val_input_src_image, self._val_input_binary_label_image, self._val_input_instance_label_image = \
-                self._val_dataset.next_batch(batch_size=self._val_batch_size)
+            (
+                self._val_input_src_image,
+                self._val_input_binary_label_image,
+                self._val_input_instance_label_image,
+            ) = self._val_dataset.next_batch(batch_size=self._val_batch_size)
 
         # define model
-        self._model = lanenet.LaneNet(phase='train', cfg=self._cfg)
-        self._val_model = lanenet.LaneNet(phase='test', cfg=self._cfg)
+        self._model = lanenet.LaneNet(phase="train", cfg=self._cfg)
+        self._val_model = lanenet.LaneNet(phase="test", cfg=self._cfg)
 
         # define average container
         tower_grads = []
@@ -113,95 +126,122 @@ class LaneNetTusimpleMultiTrainer(object):
         batchnorm_updates = None
 
         # define learning rate
-        with tf.variable_scope('learning_rate'):
-            #self._global_step = tf.Variable(1.0, dtype=tf.float32, trainable=False, name='global_step')
-            self._global_step = tf.Variable(1, dtype=tf.int64, trainable=False, name='global_step')
+        with tf.variable_scope("learning_rate"):
+            # self._global_step = tf.Variable(1.0, dtype=tf.float32, trainable=False, name='global_step')
+            self._global_step = tf.Variable(
+                1, dtype=tf.int64, trainable=False, name="global_step"
+            )
 
-            self._val_global_step = tf.Variable(1, dtype=tf.int64, trainable=False, name='val_global_step')
-            self._val_global_step_update = tf.compat.v1.assign_add(self._val_global_step, 1)
+            self._val_global_step = tf.Variable(
+                1, dtype=tf.int64, trainable=False, name="val_global_step"
+            )
+            self._val_global_step_update = tf.compat.v1.assign_add(
+                self._val_global_step, 1
+            )
             warmup_steps = tf.constant(
-                self._warmup_epoches * self._steps_per_epoch, dtype=tf.float32, name='warmup_steps'
+                self._warmup_epoches * self._steps_per_epoch,
+                dtype=tf.float32,
+                name="warmup_steps",
             )
             train_steps = tf.constant(
-                self._train_epoch_nums * self._steps_per_epoch, dtype=tf.float32, name='train_steps'
+                self._train_epoch_nums * self._steps_per_epoch,
+                dtype=tf.float32,
+                name="train_steps",
             )
             # 在条件判断前转换 global_step 为 float32
             global_step_float = tf.cast(self._global_step, dtype=tf.float32)
 
             self._learn_rate = tf.cond(
                 pred=global_step_float < warmup_steps,
-                true_fn=lambda: self._compute_warmup_lr(warmup_steps=warmup_steps, name='warmup_lr'),
+                true_fn=lambda: self._compute_warmup_lr(
+                    warmup_steps=warmup_steps, name="warmup_lr"
+                ),
                 false_fn=lambda: tf.train.polynomial_decay(
                     learning_rate=self._init_learning_rate,
                     global_step=global_step_float,
                     decay_steps=train_steps,
                     end_learning_rate=0.000000001,
-                    power=self._lr_polynimal_decay_power)
+                    power=self._lr_polynimal_decay_power,
+                ),
             )
-            self._learn_rate = tf.identity(self._learn_rate, 'lr')
+            self._learn_rate = tf.identity(self._learn_rate, "lr")
 
         # define optimizer
-        if self._optimizer_mode == 'sgd':
+        if self._optimizer_mode == "sgd":
             optimizer = tf.train.MomentumOptimizer(
-                learning_rate=self._learn_rate,
-                momentum=self._momentum
+                learning_rate=self._learn_rate, momentum=self._momentum
             )
-        elif self._optimizer_mode == 'adam':
+        elif self._optimizer_mode == "adam":
             optimizer = tf.train.AdamOptimizer(
                 learning_rate=self._learn_rate,
             )
         else:
-            raise NotImplementedError('Not support optimizer: {:s} for now'.format(self._optimizer_mode))
+            raise NotImplementedError(
+                "Not support optimizer: {:s} for now".format(self._optimizer_mode)
+            )
 
         # define distributed train op
         with tf.variable_scope(tf.get_variable_scope()):
             is_network_initialized = False
             for i in range(self._gpu_nums):
-                with tf.device('/gpu:{:d}'.format(i)):
-                    with tf.name_scope('tower_{:d}'.format(i)) as _:
+                with tf.device("/gpu:{:d}".format(i)):
+                    with tf.name_scope("tower_{:d}".format(i)) as _:
                         input_images = self._input_src_image_list[i]
                         input_binary_labels = self._input_binary_label_image_list[i]
                         input_instance_labels = self._input_instance_label_image_list[i]
                         tmp_loss, tmp_grads = self._compute_net_gradients(
-                            input_images, input_binary_labels, input_instance_labels, optimizer,
-                            is_net_first_initialized=is_network_initialized
+                            input_images,
+                            input_binary_labels,
+                            input_instance_labels,
+                            optimizer,
+                            is_net_first_initialized=is_network_initialized,
                         )
                         is_network_initialized = True
 
                         # Only use the mean and var in the chief gpu tower to update the parameter
                         if i == self._chief_gpu_index:
-                            batchnorm_updates = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+                            batchnorm_updates = tf.get_collection(
+                                tf.GraphKeys.UPDATE_OPS
+                            )
 
                         tower_grads.append(tmp_grads)
-                        tower_total_loss.append(tmp_loss['total_loss'])
-                        tower_binary_seg_loss.append(tmp_loss['binary_seg_loss'])
-                        tower_instance_seg_loss.append(tmp_loss['discriminative_loss'])
+                        tower_total_loss.append(tmp_loss["total_loss"])
+                        tower_binary_seg_loss.append(tmp_loss["binary_seg_loss"])
+                        tower_instance_seg_loss.append(tmp_loss["discriminative_loss"])
         grads = self._average_gradients(tower_grads)
-        self._loss = tf.reduce_mean(tower_total_loss, name='reduce_mean_tower_total_loss')
-        self._binary_loss = tf.reduce_mean(tower_binary_seg_loss, name='reduce_mean_tower_binary_loss')
-        self._instance_loss = tf.reduce_mean(tower_instance_seg_loss, name='reduce_mean_tower_instance_loss')
+        self._loss = tf.reduce_mean(
+            tower_total_loss, name="reduce_mean_tower_total_loss"
+        )
+        self._binary_loss = tf.reduce_mean(
+            tower_binary_seg_loss, name="reduce_mean_tower_binary_loss"
+        )
+        self._instance_loss = tf.reduce_mean(
+            tower_instance_seg_loss, name="reduce_mean_tower_instance_loss"
+        )
         ret = self._val_model.compute_loss(
             input_tensor=self._val_input_src_image,
             binary_label=self._val_input_binary_label_image,
             instance_label=self._val_input_instance_label_image,
-            name='LaneNet',
-            reuse=True
+            name="LaneNet",
+            reuse=True,
         )
-        self._val_loss = ret['total_loss']
-        self._val_binary_loss = ret['binary_seg_loss']
-        self._val_instance_loss = ret['discriminative_loss']
+        self._val_loss = ret["total_loss"]
+        self._val_binary_loss = ret["binary_seg_loss"]
+        self._val_instance_loss = ret["discriminative_loss"]
 
         # define moving average op
-        with tf.variable_scope(name_or_scope='moving_avg'):
+        with tf.variable_scope(name_or_scope="moving_avg"):
             if self._cfg.TRAIN.FREEZE_BN.ENABLE:
                 train_var_list = [
-                    v for v in tf.trainable_variables() if 'beta' not in v.name and 'gamma' not in v.name
+                    v
+                    for v in tf.trainable_variables()
+                    if "beta" not in v.name and "gamma" not in v.name
                 ]
             else:
                 train_var_list = tf.trainable_variables()
-            moving_ave_op = tf.train.ExponentialMovingAverage(self._moving_ave_decay).apply(
-                train_var_list + tf.moving_average_variables()
-            )
+            moving_ave_op = tf.train.ExponentialMovingAverage(
+                self._moving_ave_decay
+            ).apply(train_var_list + tf.moving_average_variables())
             # define saver
             self._loader = tf.train.Saver(tf.moving_average_variables())
             # 一个用于恢复全局步数
@@ -209,113 +249,163 @@ class LaneNetTusimpleMultiTrainer(object):
 
         # group all the op needed for training
         batchnorm_updates_op = tf.group(*batchnorm_updates)
-        apply_gradient_op = optimizer.apply_gradients(grads, global_step=self._global_step)
-        self._train_op = tf.group(apply_gradient_op, moving_ave_op, batchnorm_updates_op)
+        apply_gradient_op = optimizer.apply_gradients(
+            grads, global_step=self._global_step
+        )
+        self._train_op = tf.group(
+            apply_gradient_op, moving_ave_op, batchnorm_updates_op
+        )
 
         # define prediction
         self._binary_prediciton, self._instance_prediciton = self._model.inference(
             input_tensor=self._input_src_image_list[self._chief_gpu_index],
-            name='LaneNet',
-            reuse=True
+            name="LaneNet",
+            reuse=True,
         )
-        self._binary_prediciton = tf.identity(self._binary_prediciton, name='binary_segmentation_result')
-        self._val_binary_prediction, self._val_instance_prediciton = self._val_model.inference(
-            input_tensor=self._val_input_src_image,
-            name='LaneNet',
-            reuse=True
+        self._binary_prediciton = tf.identity(
+            self._binary_prediciton, name="binary_segmentation_result"
         )
-        self._val_binary_prediction = tf.identity(self._val_binary_prediction, name='val_binary_segmentation_result')
+        self._val_binary_prediction, self._val_instance_prediciton = (
+            self._val_model.inference(
+                input_tensor=self._val_input_src_image, name="LaneNet", reuse=True
+            )
+        )
+        self._val_binary_prediction = tf.identity(
+            self._val_binary_prediction, name="val_binary_segmentation_result"
+        )
 
         # define miou
         if self._enable_miou:
-            with tf.variable_scope('miou'):
-                pred = tf.reshape(self._binary_prediciton, [-1, ])
-                gt = tf.reshape(self._input_binary_label_image_list[self._chief_gpu_index], [-1, ])
-                indices = tf.squeeze(tf.where(tf.less_equal(gt, self._cfg.DATASET.NUM_CLASSES - 1)), 1)
+            with tf.variable_scope("miou"):
+                pred = tf.reshape(
+                    self._binary_prediciton,
+                    [
+                        -1,
+                    ],
+                )
+                gt = tf.reshape(
+                    self._input_binary_label_image_list[self._chief_gpu_index],
+                    [
+                        -1,
+                    ],
+                )
+                indices = tf.squeeze(
+                    tf.where(tf.less_equal(gt, self._cfg.DATASET.NUM_CLASSES - 1)), 1
+                )
                 gt = tf.gather(gt, indices)
                 pred = tf.gather(pred, indices)
                 self._miou, self._miou_update_op = tf.metrics.mean_iou(
                     labels=gt,
                     predictions=pred,
-                    num_classes=self._cfg.DATASET.NUM_CLASSES
+                    num_classes=self._cfg.DATASET.NUM_CLASSES,
                 )
 
-                val_pred = tf.reshape(self._val_binary_prediction, [-1, ])
-                val_gt = tf.reshape(self._val_input_binary_label_image, [-1, ])
-                indices = tf.squeeze(tf.where(tf.less_equal(val_gt, self._cfg.DATASET.NUM_CLASSES - 1)), 1)
+                val_pred = tf.reshape(
+                    self._val_binary_prediction,
+                    [
+                        -1,
+                    ],
+                )
+                val_gt = tf.reshape(
+                    self._val_input_binary_label_image,
+                    [
+                        -1,
+                    ],
+                )
+                indices = tf.squeeze(
+                    tf.where(tf.less_equal(val_gt, self._cfg.DATASET.NUM_CLASSES - 1)),
+                    1,
+                )
                 val_gt = tf.gather(val_gt, indices)
                 val_pred = tf.gather(val_pred, indices)
                 self._val_miou, self._val_miou_update_op = tf.metrics.mean_iou(
                     labels=val_gt,
                     predictions=val_pred,
-                    num_classes=self._cfg.DATASET.NUM_CLASSES
+                    num_classes=self._cfg.DATASET.NUM_CLASSES,
                 )
 
         # define saver and loader
-        with tf.variable_scope('loader_and_saver'):
-            self._net_var = [vv for vv in tf.global_variables() if 'lr' not in vv.name]
+        with tf.variable_scope("loader_and_saver"):
+            self._net_var = [vv for vv in tf.global_variables() if "lr" not in vv.name]
             self._saver = tf.train.Saver(max_to_keep=10)
 
         # define summary
-        with tf.variable_scope('summary'):
+        with tf.variable_scope("summary"):
             summary_merge_list = [
                 tf.summary.scalar("learn_rate", self._learn_rate),
                 tf.summary.scalar("total_loss", self._loss),
-                tf.summary.scalar('binary_loss', self._binary_loss),
-                tf.summary.scalar('instance_loss', self._instance_loss),
+                tf.summary.scalar("binary_loss", self._binary_loss),
+                tf.summary.scalar("instance_loss", self._instance_loss),
             ]
             val_summary_merge_list = [
-                tf.summary.scalar('val_total_loss', self._val_loss),
-                tf.summary.scalar('val_binary_loss', self._val_binary_loss),
-                tf.summary.scalar('val_instance_loss', self._val_instance_loss),
+                tf.summary.scalar("val_total_loss", self._val_loss),
+                tf.summary.scalar("val_binary_loss", self._val_binary_loss),
+                tf.summary.scalar("val_instance_loss", self._val_instance_loss),
             ]
             if self._enable_miou:
                 with tf.control_dependencies([self._miou_update_op]):
                     summary_merge_list_with_miou = [
                         tf.summary.scalar("learn_rate", self._learn_rate),
                         tf.summary.scalar("total_loss", self._loss),
-                        tf.summary.scalar('binary_loss', self._binary_loss),
-                        tf.summary.scalar('instance_loss', self._instance_loss),
-                        tf.summary.scalar('miou', self._miou)
+                        tf.summary.scalar("binary_loss", self._binary_loss),
+                        tf.summary.scalar("instance_loss", self._instance_loss),
+                        tf.summary.scalar("miou", self._miou),
                     ]
-                    self._write_summary_op_with_miou = tf.summary.merge(summary_merge_list_with_miou)
-                with tf.control_dependencies([self._val_miou_update_op, self._val_global_step_update]):
+                    self._write_summary_op_with_miou = tf.summary.merge(
+                        summary_merge_list_with_miou
+                    )
+                with tf.control_dependencies(
+                    [self._val_miou_update_op, self._val_global_step_update]
+                ):
                     val_summary_merge_list_with_miou = [
                         tf.summary.scalar("total_loss", self._loss),
-                        tf.summary.scalar('binary_loss', self._binary_loss),
-                        tf.summary.scalar('instance_loss', self._instance_loss),
-                        tf.summary.scalar('val_miou', self._val_miou),
+                        tf.summary.scalar("binary_loss", self._binary_loss),
+                        tf.summary.scalar("instance_loss", self._instance_loss),
+                        tf.summary.scalar("val_miou", self._val_miou),
                     ]
-                    self._val_write_summary_op_with_miou = tf.summary.merge(val_summary_merge_list_with_miou)
+                    self._val_write_summary_op_with_miou = tf.summary.merge(
+                        val_summary_merge_list_with_miou
+                    )
             if ops.exists(self._tboard_save_dir):
                 shutil.rmtree(self._tboard_save_dir)
             os.makedirs(self._tboard_save_dir, exist_ok=True)
-            model_params_file_save_path = ops.join(self._tboard_save_dir, self._cfg.TRAIN.MODEL_PARAMS_CONFIG_FILE_NAME)
-            with open(model_params_file_save_path, 'w', encoding='utf-8') as f_obj:
+            model_params_file_save_path = ops.join(
+                self._tboard_save_dir, self._cfg.TRAIN.MODEL_PARAMS_CONFIG_FILE_NAME
+            )
+            with open(model_params_file_save_path, "w", encoding="utf-8") as f_obj:
                 self._cfg.dump_to_json_file(f_obj)
             self._write_summary_op = tf.summary.merge(summary_merge_list)
             self._val_write_summary_op = tf.summary.merge(val_summary_merge_list)
-            self._summary_writer = tf.summary.FileWriter(self._tboard_save_dir, graph=self._sess.graph)
+            self._summary_writer = tf.summary.FileWriter(
+                self._tboard_save_dir, graph=self._sess.graph
+            )
 
-        # Early stopping 参数
         self._best_model_name = None
+        # Early stopping 参数
         self._early_stopping = self._cfg.TRAIN.EARLY_STOPPING.ENABLE
         self._early_stopping_break = False
         if self._early_stopping:
             self._patience = self._cfg.TRAIN.EARLY_STOPPING.PATIENCE
             self._min_delta = self._cfg.TRAIN.EARLY_STOPPING.MIN_DELTA
             self._monitor = self._cfg.TRAIN.EARLY_STOPPING.MONITOR  # 'loss' or 'miou'
-            if self._monitor == 'loss':
-                self._best_metric = float('inf')  # 对于loss，越小越好
-                self._is_better = lambda current, best: current < (best - self._min_delta)
+            if self._monitor == "loss":
+                self._best_metric = float("inf")  # 对于loss，越小越好
+                self._is_better = lambda current, best: current < (
+                    best - self._min_delta
+                )
+                self._sorted = lambda x: sorted(x, reverse=True)
+                self._ckpt_name_fmt = "best_model_loss{:.4f}.ckpt"
             else:  # miou
-                self._best_metric = float('-inf')  # 对于miou，越大越好
-                self._is_better = lambda current, best: current > (best + self._min_delta)
+                self._best_metric = float("-inf")  # 对于miou，越大越好
+                self._is_better = lambda current, best: current > (
+                    best + self._min_delta
+                )
+                self._sorted = lambda x: sorted(x, reverse=False)
+                self._ckpt_name_fmt = "best_model_miou{:.4f}.ckpt"
             self._patience_counter = 0
             self._early_stopping_break = False
 
-
-        LOG.info('Initialize tusimple lanenet multi gpu trainner complete')
+        LOG.info("Initialize tusimple lanenet multi gpu trainner complete")
 
     @staticmethod
     def _average_gradients(tower_grads):
@@ -363,16 +453,26 @@ class LaneNetTusimpleMultiTrainer(object):
         """
         with tf.variable_scope(name_or_scope=name):
             # 将 warmup_steps 转换为浮点数
-            #warmup_steps_float = tf.cast(warmup_steps, dtype=tf.float32)
+            # warmup_steps_float = tf.cast(warmup_steps, dtype=tf.float32)
             # 将 global_step 转换为浮点数
             global_step_float = tf.cast(self._global_step, dtype=tf.float32)
-            factor = tf.math.pow(self._init_learning_rate / self._warmup_init_learning_rate, 
-                                 1.0 / warmup_steps )
-            warmup_lr = self._warmup_init_learning_rate * tf.math.pow(factor, global_step_float)
+            factor = tf.math.pow(
+                self._init_learning_rate / self._warmup_init_learning_rate,
+                1.0 / warmup_steps,
+            )
+            warmup_lr = self._warmup_init_learning_rate * tf.math.pow(
+                factor, global_step_float
+            )
         return warmup_lr
 
-    def _compute_net_gradients(self, images, binary_labels, instance_labels, optimizer=None,
-                               is_net_first_initialized=False):
+    def _compute_net_gradients(
+        self,
+        images,
+        binary_labels,
+        instance_labels,
+        optimizer=None,
+        is_net_first_initialized=False,
+    ):
         """
         Calculate gradients for single GPU
         :param images: images for training
@@ -386,19 +486,23 @@ class LaneNetTusimpleMultiTrainer(object):
             input_tensor=images,
             binary_label=binary_labels,
             instance_label=instance_labels,
-            name='LaneNet',
-            reuse=is_net_first_initialized
+            name="LaneNet",
+            reuse=is_net_first_initialized,
         )
 
         if self._cfg.TRAIN.FREEZE_BN.ENABLE:
             train_var_list = [
-                v for v in tf.trainable_variables() if 'beta' not in v.name and 'gamma' not in v.name
+                v
+                for v in tf.trainable_variables()
+                if "beta" not in v.name and "gamma" not in v.name
             ]
         else:
             train_var_list = tf.trainable_variables()
 
         if optimizer is not None:
-            grads = optimizer.compute_gradients(net_loss['total_loss'], var_list=train_var_list)
+            grads = optimizer.compute_gradients(
+                net_loss["total_loss"], var_list=train_var_list
+            )
         else:
             grads = None
 
@@ -409,8 +513,8 @@ class LaneNetTusimpleMultiTrainer(object):
 
         :return:
         """
-        #self._sess.run(tf.global_variables_initializer())
-        #self._sess.run(tf.local_variables_initializer())
+        # self._sess.run(tf.global_variables_initializer())
+        # self._sess.run(tf.local_variables_initializer())
         self._sess.run(tf.compat.v1.global_variables_initializer())
         self._sess.run(tf.compat.v1.local_variables_initializer())
 
@@ -423,39 +527,50 @@ class LaneNetTusimpleMultiTrainer(object):
                     #
                     # 再恢复全局步数
                     self._global_step_loader.restore(self._sess, self._initial_weight)
-                    global_step_value = self._sess.run(self._global_step) + 1 # step value start from 0
-                    remain_epoch_nums = self._train_epoch_nums - math.floor(global_step_value / self._steps_per_epoch)
+                    global_step_value = (
+                        self._sess.run(self._global_step) + 1
+                    )  # step value start from 0
+                    remain_epoch_nums = self._train_epoch_nums - math.floor(
+                        global_step_value / self._steps_per_epoch
+                    )
                     # epoch_start_pt = self._train_epoch_nums - remain_epoch_nums
                     epoch_start_pt = self._train_epoch_nums - remain_epoch_nums + 1
                 else:
                     global_step_value = 0
                     epoch_start_pt = 1
                 # 修改日志打印方式
-                LOG.info('=> Restoring weights from: {}, epoch start pt: {} ... '.format(
-                    str(self._initial_weight), 
-                    int(epoch_start_pt)
-                ))
-                LOG.info('   global_step_value: {}, steps_per_epoch: {}'.format(
-                    int(global_step_value),
-                    int(self._steps_per_epoch)
-                ))
+                LOG.info(
+                    "=> Restoring weights from: {}, epoch start pt: {} ... ".format(
+                        str(self._initial_weight), int(epoch_start_pt)
+                    )
+                )
+                LOG.info(
+                    "   global_step_value: {}, steps_per_epoch: {}".format(
+                        int(global_step_value), int(self._steps_per_epoch)
+                    )
+                )
             except OSError as e:
                 LOG.error(e)
-                LOG.info('=> {:s} does not exist !!!'.format(self._initial_weight))
-                LOG.info('=> Now it starts to train LaneNet from scratch ...')
+                LOG.info("=> {:s} does not exist !!!".format(self._initial_weight))
+                LOG.info("=> Now it starts to train LaneNet from scratch ...")
                 epoch_start_pt = 1
             except Exception as e:
                 LOG.error(e)
-                LOG.info('=> Can not load pretrained model weights: {:s}'.format(self._initial_weight))
-                LOG.info('=> Now it starts to train LaneNet from scratch ...')
+                LOG.info(
+                    "=> Can not load pretrained model weights: {:s}".format(
+                        self._initial_weight
+                    )
+                )
+                LOG.info("=> Now it starts to train LaneNet from scratch ...")
                 epoch_start_pt = 1
         else:
-            LOG.info('=> Starts to train LaneNet from scratch ...')
+            LOG.info("=> Starts to train LaneNet from scratch ...")
             epoch_start_pt = 1
 
         best_model = []
-        for epoch in range(epoch_start_pt, self._train_epoch_nums + 1): # 训练次数从1开始
-            
+        for epoch in range(
+            epoch_start_pt, self._train_epoch_nums + 1
+        ):  # 训练次数从1开始
             # training part
             train_epoch_losses = []
             train_epoch_mious = []
@@ -463,42 +578,68 @@ class LaneNetTusimpleMultiTrainer(object):
             for _ in traindataset_pbar:
                 if True:
                     if self._enable_miou and epoch % self._record_miou_epoch == 0:
-                        _, _, summary, train_step_loss, train_step_binary_loss, \
-                            train_step_instance_loss, global_step_val = self._sess.run(
-                                fetches=[
-                                    self._train_op, self._miou_update_op, self._write_summary_op_with_miou,
-                                    self._loss, self._binary_loss, self._instance_loss,
-                                    self._global_step
-                                ]
-                            )
-                        train_step_miou = self._sess.run(
-                            fetches=self._miou
+                        (
+                            _,
+                            _,
+                            summary,
+                            train_step_loss,
+                            train_step_binary_loss,
+                            train_step_instance_loss,
+                            global_step_val,
+                        ) = self._sess.run(
+                            fetches=[
+                                self._train_op,
+                                self._miou_update_op,
+                                self._write_summary_op_with_miou,
+                                self._loss,
+                                self._binary_loss,
+                                self._instance_loss,
+                                self._global_step,
+                            ]
                         )
+                        train_step_miou = self._sess.run(fetches=self._miou)
                         train_epoch_losses.append(train_step_loss)
                         train_epoch_mious.append(train_step_miou)
-                        self._summary_writer.add_summary(summary, global_step=global_step_val)
+                        self._summary_writer.add_summary(
+                            summary, global_step=global_step_val
+                        )
                         traindataset_pbar.set_description(
-                            'train loss: {:.5f}, b_loss: {:.5f}, i_loss: {:.5f}, miou: {:.5f}'.format(
-                                train_step_loss, train_step_binary_loss, train_step_instance_loss, train_step_miou
+                            "train loss: {:.5f}, b_loss: {:.5f}, i_loss: {:.5f}, miou: {:.5f}".format(
+                                train_step_loss,
+                                train_step_binary_loss,
+                                train_step_instance_loss,
+                                train_step_miou,
                             )
                         )
                     else:
-                        _, summary, train_step_loss, train_step_binary_loss, \
-                            train_step_instance_loss, global_step_val = self._sess.run(
-                                fetches=[
-                                    self._train_op, self._write_summary_op,
-                                    self._loss, self._binary_loss, self._instance_loss,
-                                    self._global_step
-                                ]
+                        (
+                            _,
+                            summary,
+                            train_step_loss,
+                            train_step_binary_loss,
+                            train_step_instance_loss,
+                            global_step_val,
+                        ) = self._sess.run(
+                            fetches=[
+                                self._train_op,
+                                self._write_summary_op,
+                                self._loss,
+                                self._binary_loss,
+                                self._instance_loss,
+                                self._global_step,
+                            ]
                         )
                         train_epoch_losses.append(train_step_loss)
-                        self._summary_writer.add_summary(summary, global_step=global_step_val)
+                        self._summary_writer.add_summary(
+                            summary, global_step=global_step_val
+                        )
                         traindataset_pbar.set_description(
-                            'train loss: {:.5f}, b_loss: {:.5f}, i_loss: {:.5f}'.format(
-                                train_step_loss, train_step_binary_loss, train_step_instance_loss
+                            "train loss: {:.5f}, b_loss: {:.5f}, i_loss: {:.5f}".format(
+                                train_step_loss,
+                                train_step_binary_loss,
+                                train_step_instance_loss,
                             )
                         )
-                
 
             train_epoch_losses = np.mean(train_epoch_losses)
             if self._enable_miou and epoch % self._record_miou_epoch == 0:
@@ -511,38 +652,62 @@ class LaneNetTusimpleMultiTrainer(object):
             for _ in valdataset_pbar:
                 try:
                     if self._enable_miou and epoch % self._record_miou_epoch == 0:
-                        _, val_summary, val_step_loss, val_step_binary_loss, \
-                            val_step_instance_loss, val_global_step_val = self._sess.run(
-                                    fetches=[
-                                        self._val_miou_update_op, self._val_write_summary_op_with_miou,
-                                        self._val_loss, self._val_binary_loss, self._val_instance_loss,
-                                        self._val_global_step
-                                    ]
-                            )
-                        val_step_miou = self._sess.run(
-                            fetches=self._val_miou
+                        (
+                            _,
+                            val_summary,
+                            val_step_loss,
+                            val_step_binary_loss,
+                            val_step_instance_loss,
+                            val_global_step_val,
+                        ) = self._sess.run(
+                            fetches=[
+                                self._val_miou_update_op,
+                                self._val_write_summary_op_with_miou,
+                                self._val_loss,
+                                self._val_binary_loss,
+                                self._val_instance_loss,
+                                self._val_global_step,
+                            ]
                         )
+                        val_step_miou = self._sess.run(fetches=self._val_miou)
                         val_epoch_losses.append(val_step_loss)
                         val_epoch_mious.append(val_step_miou)
-                        self._summary_writer.add_summary(val_summary, global_step=val_global_step_val)
+                        self._summary_writer.add_summary(
+                            val_summary, global_step=val_global_step_val
+                        )
                         valdataset_pbar.set_description(
-                            'val loss: {:.5f}, b_loss: {:.5f}, i_loss: {:.5f}, val miou: {:.5f}'.format(
-                                val_step_loss, val_step_binary_loss, val_step_instance_loss, val_step_miou)
+                            "val loss: {:.5f}, b_loss: {:.5f}, i_loss: {:.5f}, val miou: {:.5f}".format(
+                                val_step_loss,
+                                val_step_binary_loss,
+                                val_step_instance_loss,
+                                val_step_miou,
+                            )
                         )
                     else:
-                        val_summary, val_step_loss, val_step_binary_loss, \
-                            val_step_instance_loss, val_global_step_val = self._sess.run(
-                                fetches=[
-                                    self._val_write_summary_op,
-                                    self._val_loss, self._val_binary_loss, self._val_instance_loss,
-                                    self._val_global_step
-                                ]
-                            )
+                        (
+                            val_summary,
+                            val_step_loss,
+                            val_step_binary_loss,
+                            val_step_instance_loss,
+                            val_global_step_val,
+                        ) = self._sess.run(
+                            fetches=[
+                                self._val_write_summary_op,
+                                self._val_loss,
+                                self._val_binary_loss,
+                                self._val_instance_loss,
+                                self._val_global_step,
+                            ]
+                        )
                         val_epoch_losses.append(val_step_loss)
-                        self._summary_writer.add_summary(val_summary, global_step=val_global_step_val)
+                        self._summary_writer.add_summary(
+                            val_summary, global_step=val_global_step_val
+                        )
                         valdataset_pbar.set_description(
-                            'val loss: {:.5f} b_loss: {:.5f}, i_loss: {:.5f}'.format(
-                                val_step_loss, val_step_binary_loss, val_step_instance_loss
+                            "val loss: {:.5f} b_loss: {:.5f}, i_loss: {:.5f}".format(
+                                val_step_loss,
+                                val_step_binary_loss,
+                                val_step_instance_loss,
                             )
                         )
                 except tf.errors.OutOfRangeError as _:
@@ -551,103 +716,216 @@ class LaneNetTusimpleMultiTrainer(object):
             if self._enable_miou and epoch % self._record_miou_epoch == 0:
                 val_epoch_mious = np.mean(val_epoch_mious)
 
+            current_metric = (
+                val_epoch_mious if self._monitor == "miou" else val_epoch_losses
+            )
             # Early stopping 检查
             if self._early_stopping:
-                current_metric = val_epoch_mious if self._monitor == 'miou' else val_epoch_losses
-                
                 if self._is_better(current_metric, self._best_metric):
                     # 性能改善
                     self._best_metric = current_metric
                     self._patience_counter = 0
-                    
+
                     os.makedirs(self._model_save_dir, exist_ok=True)
-                    os.system('rm -rf {}/*best_model_*.ckpt*'.format(self._model_save_dir))
+                    os.system(
+                        "rm -rf {}/*best_model_*.ckpt*".format(self._model_save_dir)
+                    )
                     # 保存最佳模型
-                    if self._monitor == 'miou':
-                        best_model_name = 'best_model_miou{:.4f}.ckpt'.format(current_metric)
-                    else:
-                        best_model_name = 'best_model_loss{:.4f}.ckpt'.format(current_metric)
-                    
+                    best_model_name = self._ckpt_name_fmt.format(current_metric)
                     best_model_path = ops.join(self._model_save_dir, best_model_name)
-                    
+
                     self._saver.save(self._sess, best_model_path, global_step=epoch)
-                    LOG.info('=> Saved new best model with {}: {:.5f}'.format(
-                        self._monitor, current_metric))
+                    self._best_model_name = best_model_name  # 添加这行记录模型名称
+                    LOG.info(
+                        "=> Saved new best model with {}: {:.5f}".format(
+                            self._monitor, current_metric
+                        )
+                    )
                 else:
                     # 性能没有改善
                     self._patience_counter += 1
-                    LOG.info('=> Early stopping patience counter: {}/{}'.format(
-                        self._patience_counter, self._patience))
-                    
+                    LOG.info(
+                        "=> Early stopping patience counter: {}/{}".format(
+                            self._patience_counter, self._patience
+                        )
+                    )
+
                     if self._patience_counter >= self._patience:
-                        LOG.info('=> Early stopping triggered at epoch {}. Best {}: {:.5f}'.format(
-                            epoch, self._monitor, self._best_metric))
+                        LOG.info(
+                            "=> Early stopping triggered at epoch {}. Best {}: {:.5f}".format(
+                                epoch, self._monitor, self._best_metric
+                            )
+                        )
                         self._early_stopping_break = True
 
             # model saving part
-            if (epoch % self._snapshot_epoch == 0) or (epoch == self._train_epoch_nums) or (self._early_stopping_break):
-            # if (epoch % self._snapshot_epoch == 0):
-                if self._enable_miou:
-                    if len(best_model) < 10:
-                        best_model.append(val_epoch_mious)
-                        best_model = sorted(best_model)
-                        snapshot_model_name = 'tusimple_val_miou{:.4f}.ckpt'.format(val_epoch_mious)
-                        snapshot_model_path = ops.join(self._model_save_dir, snapshot_model_name)
-                        os.makedirs(self._model_save_dir, exist_ok=True)
-                        self._saver.save(self._sess, snapshot_model_path, global_step=epoch)
-                    else:
-                        best_model = sorted(best_model) # sort in ascending order
-                        if val_epoch_mious > best_model[0]:
-                            best_model[0] = val_epoch_mious
-                            best_model = sorted(best_model)
-                            snapshot_model_name = 'tusimple_val_miou{:.4f}.ckpt'.format(val_epoch_mious)
-                            snapshot_model_path = ops.join(self._model_save_dir, snapshot_model_name)
-                            os.makedirs(self._model_save_dir, exist_ok=True)
-                            self._saver.save(self._sess, snapshot_model_path, global_step=epoch)
-                        else:
-                            pass
-                else:
-                    snapshot_model_name = 'tusimple_val_loss{:.4f}.ckpt'.format(val_epoch_losses)
-                    snapshot_model_path = ops.join(self._model_save_dir, snapshot_model_name)
+            if (
+                (epoch % self._snapshot_epoch == 0)
+                or (epoch == self._train_epoch_nums)
+                or (self._early_stopping_break)
+            ):
+                if len(best_model) < 100:
+                    best_model.append(current_metric)
+                    best_model = self._sorted(best_model)
+                    snapshot_model_name = self._ckpt_name_fmt.format(current_metric)
+                    snapshot_model_path = ops.join(
+                        self._model_save_dir, snapshot_model_name
+                    )
                     os.makedirs(self._model_save_dir, exist_ok=True)
                     self._saver.save(self._sess, snapshot_model_path, global_step=epoch)
+                else:
+                    if self._is_better(current_metric, best_model[0]):
+                        best_model[0] = current_metric
+                        best_model = self._sorted(best_model)
+                        snapshot_model_name = self._ckpt_name_fmt.format(current_metric)
+                        snapshot_model_path = ops.join(
+                            self._model_save_dir, snapshot_model_name
+                        )
+                        os.makedirs(self._model_save_dir, exist_ok=True)
+                        self._saver.save(
+                            self._sess, snapshot_model_path, global_step=epoch
+                        )
+                    else:
+                        pass
 
-            log_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))
+            log_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time()))
             if self._enable_miou and epoch % self._record_miou_epoch == 0:
                 LOG.info(
-                    '=> Epoch: {:d} Time: {:s} Train loss: {:.5f} Train miou: {:.5f} '
-                    'Val loss: {:.5f} Val miou: {:.5f}...'.format(
-                        epoch, log_time,
+                    "=> Epoch: {:d} Time: {:s} Train loss: {:.5f} Train miou: {:.5f} "
+                    "Val loss: {:.5f} Val miou: {:.5f}...".format(
+                        epoch,
+                        log_time,
                         train_epoch_losses,
                         train_epoch_mious,
                         val_epoch_losses,
-                        val_epoch_mious
+                        val_epoch_mious,
                     )
                 )
             else:
                 LOG.info(
-                    '=> Epoch: {:d} Time: {:s} Train loss: {:.5f} Val loss: {:.5f}...'.format(
-                        epoch, log_time,
-                        train_epoch_losses,
-                        val_epoch_losses
+                    "=> Epoch: {:d} Time: {:s} Train loss: {:.5f} Val loss: {:.5f}...".format(
+                        epoch, log_time, train_epoch_losses, val_epoch_losses
                     )
                 )
 
             if self._early_stopping_break:
                 break
-                       
-        
-        if self._enable_miou:
-            best_model = sorted(best_model)
-            LOG.info('Best model\'s val mious are: {}'.format(best_model))
-        LOG.info('Complete training process good luck!!')
 
+        best_model_name = None
+        if not self._early_stopping:
+            best_model = sorted(best_model)
+            the_best_model = best_model[-1]
+            best_model_name = self._ckpt_name_fmt.format(the_best_model)
+            snapshot_model_path = ops.join(self._model_save_dir, best_model_name)
+            LOG.info(
+                "=> Successfully saved best model to: {}".format(snapshot_model_path)
+            )
+        # 导出最佳模型为冻结格式
+        elif self._best_model_name:  # 无论是否启用early_stopping
+            best_model_name = self._best_model_name
+        else:
+            # 获取最新的检查点（未启用early_stopping时）
+            checkpoint = tf.train.get_checkpoint_state(self._model_save_dir)
+            if checkpoint and checkpoint.model_checkpoint_path:
+                best_model_name = checkpoint.model_checkpoint_path.split(".ckpt")[0] + ".ckpt"  # 去除.ckpt后缀
+            else:
+                LOG.info("=> No checkpoint found in {}".format(self._model_save_dir))
+
+        if best_model_name:
+            # find the best model named start with best_model_name in the model_save_dir
+            best_model_path = None
+            for file in os.listdir(self._model_save_dir):
+                if file.endswith(".index") and file.startswith(best_model_name):
+                    exact_best_model_name = file.split(".index")[0]
+                    best_model_path = ops.join(self._model_save_dir, exact_best_model_name)
+                    break
+            if best_model_path:
+                frozen_model_path = ops.join(self._model_save_dir, "lanenet_frozen_model.pb")
+                self._export_frozen_model(best_model_path, frozen_model_path)
+                LOG.info(
+                    "=> Successfully exported BEST FROZEN MODEL to: {}".format(
+                        frozen_model_path
+                    )
+                )
+            else:
+                LOG.info("=> No best model found in {}".format(self._model_save_dir))
+
+        LOG.info("Complete training process good luck!!")
         return
 
+    def _export_frozen_model(self, ckpt_path, output_path):
+        """
+        导出冻结模型为.pb格式
+        :param ckpt_path: 检查点路径 (需包含.ckpt扩展名前缀)
+        :param output_path: 输出pb文件路径
+        """
+        try:
+            # 自动创建输出目录
+            output_dir = os.path.dirname(output_path)
+            os.makedirs(output_dir, exist_ok=True)
+            
+            # 动态获取节点名称
+            with tf.Graph().as_default() as export_graph:
+                # 定义标准化输入
+                input_image = tf.placeholder(
+                    tf.float32,
+                    shape=[None, self._input_tensor_size[1], 
+                          self._input_tensor_size[0], 3],
+                    name="input_tensor"
+                )
 
-if __name__ == '__main__':
+                # 构建推理模型
+                model = lanenet.LaneNet(phase="test", cfg=self._cfg)
+                binary_seg, instance_seg = model.inference(
+                    input_tensor=input_image, 
+                    name="LaneNet", 
+                    reuse=False
+                )
+
+                # 配置会话参数
+                config = tf.ConfigProto(
+                    allow_soft_placement=True,
+                    gpu_options=tf.GPUOptions(allow_growth=True)
+                )
+
+                with tf.Session(config=config) as sess:
+                    # 恢复模型参数
+                    saver = tf.train.Saver()
+                    try:
+                        saver.restore(sess, ckpt_path)
+                        LOG.info(f"成功从 {ckpt_path} 恢复检查点")
+                    except Exception as e:
+                        raise RuntimeError(f"检查点恢复失败: {str(e)}")
+
+                    # 获取输出节点名称
+                    binary_output = binary_seg.name.split(":")[0]
+                    instance_output = instance_seg.name.split(":")[0]
+                    LOG.info(f"输出节点名称: {binary_output}, {instance_output}")
+
+                    # 冻结计算图
+                    frozen_graph = tf.graph_util.convert_variables_to_constants(
+                        sess,
+                        sess.graph_def,
+                        output_node_names=[binary_output, instance_output]
+                    )
+                    
+                    # 保存冻结模型
+                    with tf.gfile.GFile(output_path, "wb") as f:
+                        f.write(frozen_graph.SerializeToString())
+                    LOG.info(f"冻结模型已保存至: {output_path}")
+
+                    # 验证输出尺寸
+                    input_shape = frozen_graph.node[0].attr["shape"].shape
+                    LOG.debug(f"输入张量尺寸: {input_shape}")
+                    
+        except Exception as e:
+            LOG.error(f"模型导出失败: {str(e)}")
+            raise
+
+
+if __name__ == "__main__":
     """
     test code
     """
     worker = LaneNetTusimpleMultiTrainer(cfg=parse_config_utils.lanenet_cfg)
-    print('Init complete')
+    print("Init complete")

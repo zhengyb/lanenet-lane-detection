@@ -825,7 +825,7 @@ class LaneNetPostProcessor(object):
                 print("cam_geom.camera_name: {}".format(cam_geom.camera_name))
                 fig =plt.figure(figsize=(10, 6), dpi=100)
                 # 生成高密度采样点（1000个点保证曲线连续）
-                left_lane_y = 3.5
+                left_lane_y = 3.5  # lane width in us is 3.6m typically
                 left_lane_index = None
                 right_lane_y = -3.5
                 right_lane_index = None

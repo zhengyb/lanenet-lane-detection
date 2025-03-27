@@ -19,13 +19,14 @@ class LaneNet(cnn_basenet.CNNBaseModel):
     """
 
     """
-    def __init__(self, phase, cfg):
+    def __init__(self, phase, cfg, name="LaneNet"):
         """
 
         """
         super(LaneNet, self).__init__()
         self._cfg = cfg
         self._net_flag = self._cfg.MODEL.FRONT_END
+        self.name = name
 
         self._frontend = lanenet_front_end.LaneNetFrondEnd(
             phase=phase, net_flag=self._net_flag, cfg=self._cfg
@@ -58,7 +59,11 @@ class LaneNet(cnn_basenet.CNNBaseModel):
                 reuse=reuse
             )
 
-        return binary_seg_prediction, instance_seg_prediction
+            # 在返回前添加命名
+            binary_output = tf.identity(binary_seg_prediction, name="binary_segmentation_result")
+            instance_output = tf.identity(instance_seg_prediction, name="instance_segmentation_result")
+
+        return binary_output, instance_output
 
     def compute_loss(self, input_tensor, binary_label, instance_label, name, reuse=False):
         """
