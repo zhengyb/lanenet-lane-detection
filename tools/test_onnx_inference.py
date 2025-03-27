@@ -49,3 +49,8 @@ def test_onnx_model(onnx_path, image_path):
 
 if __name__ == "__main__":
     test_onnx_model("./model/tusimple/bisenetv2_lanenet/lanenet.onnx", "./data/tusimple_test_image/0.jpg") 
+    # Follow the steps below to convert and verify the tensorrt model
+    # 1. convert the onnx model to tensorrt model
+    # trtexec --onnx=lanenet.onnx --saveEngine=lanenet.engine --explicitBatch --workspace=2048 --fp16 --verbose
+    # 2. verify the tensorrt model
+    # /usr/src/tensorrt/bin/trtexec --loadEngine=lanenet.engine --shapes=input_tensor:0:1*256*512*3     --dumpProfile
