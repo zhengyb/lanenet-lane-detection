@@ -1,12 +1,4 @@
-import argparse
-import os.path as ops
-import time
-import os
-
-import cv2
-import matplotlib.pyplot as plt
 import numpy as np
-import tensorflow as tf
 from enum import Enum
 
 from local_utils.config_utils import parse_config_utils
