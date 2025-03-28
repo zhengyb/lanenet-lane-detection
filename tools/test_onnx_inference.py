@@ -6,7 +6,12 @@ from tools.utils import make_instance_seg_img_visuable
 
 def test_onnx_model(onnx_path, image_path):
     # 初始化ONNX Runtime会话
-    sess = onnxruntime.InferenceSession(onnx_path)
+    sess_options = onnxruntime.SessionOptions()
+    sess = onnxruntime.InferenceSession(
+        onnx_path,
+        providers=['CUDAExecutionProvider', 'CPUExecutionProvider'],
+        sess_options=sess_options
+    )
     
     # 打印输入输出信息
     for input in sess.get_inputs():

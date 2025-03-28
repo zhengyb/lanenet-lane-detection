@@ -15,8 +15,8 @@ def benchmark_model(pb_path, warmup=10, runs=100):
             graph.get_tensor_by_name("LaneNet/instance_segmentation_result:0")
         ]
 
-        # 生成随机输入
-        dummy_input = np.random.randn(1, 256, 512, 3).astype(np.float32)
+        # 生成随机输入, 归一化到[-1, 1]
+        dummy_input = (np.random.randn(1, 256, 512, 3).astype(np.uint8) / 127.5) - 1.0
 
         with tf.Session() as sess:
             # Warmup
@@ -34,3 +34,4 @@ def benchmark_model(pb_path, warmup=10, runs=100):
 
 # 使用示例
 benchmark_model("./model/tusimple/bisenetv2_lanenet/lanenet_frozen_model.pb") 
+# FPS: 180

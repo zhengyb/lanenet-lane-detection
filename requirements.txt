@@ -5,4 +5,6 @@ opencv_contrib_python
 numpy
 scikit_learn
 PyYAML
+tf2onnx
 #tensorflow_gpu==1.15.5
+onnxruntime-gpu==1.19.0

@@ -31,6 +31,14 @@ RUN apt-get update && apt-get install -y \
     && apt clean \
     && rm -rf /var/lib/apt/lists/*
 
+# install cudnn9 for cuda12 (for onnxruntime-gpu 1.19.0)
+RUN wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-keyring_1.1-1_all.deb \
+    && dpkg -i cuda-keyring_1.1-1_all.deb \
+    && apt-get update \
+    && apt-get -y install cudnn9-cuda-12 \
+    && rm -rf /var/lib/apt/lists/*    
+
+
 RUN git clone https://github.com/zhengyb/ByteTrack.git \
     && cd ByteTrack \
     && git checkout -b dev origin/dev \
@@ -51,6 +59,8 @@ RUN git clone https://github.com/NVIDIA-AI-IOT/torch2trt \
     && wget https://github.com/NVIDIA-AI-IOT/torch2trt/commit/8b9fb46ddbe99c2ddf3f1ed148c97435cbeb8fd3.patch \
     && git apply 8b9fb46ddbe99c2ddf3f1ed148c97435cbeb8fd3.patch \
     && python3 setup.py install
+
+
 
 #RUN echo "root:root" | chpasswd \
 #    && adduser --disabled-password --gecos "" "${USERNAME}" \
