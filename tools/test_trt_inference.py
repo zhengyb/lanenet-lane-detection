@@ -179,7 +179,7 @@ class TRTLaneNet:
 
 # 使用示例
 def test_trt_inference():
-    detector = TRTLaneNet("./model/tusimple/bisenetv2_lanenet/lanenet.engine")
+    detector = TRTLaneNet("./weights/tusimple_lanenet_zyb0328/lanenet.engine")
     image = cv2.imread("./data/tusimple_test_image/0.jpg")
     binary_mask, instance_embedding = detector.inference(image)
 
@@ -197,5 +197,5 @@ def test_trt_inference():
 
 
 if __name__ == "__main__":
-    list_trt_engine_layers("./model/tusimple/bisenetv2_lanenet/lanenet.engine")
-    test_trt_inference()
+    list_trt_engine_layers("./weights/tusimple_lanenet_zyb0328/lanenet.engine")
+    # test_trt_inference()

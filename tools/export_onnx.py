@@ -26,8 +26,10 @@ def convert_to_onnx(pb_path, onnx_path):
         with open(onnx_path, "wb") as f:
             f.write(model_proto.SerializeToString())
 
-# 使用示例
-convert_to_onnx(
-    pb_path="./model/tusimple/bisenetv2_lanenet/lanenet_frozen_model.pb",
-    onnx_path="./model/tusimple/bisenetv2_lanenet/lanenet.onnx"
-) 
+
+if __name__ == "__main__":
+    # 使用示例
+    convert_to_onnx(
+        pb_path="./model/tusimple/bisenetv2_lanenet/lanenet_frozen_model.pb",
+        onnx_path="./model/tusimple/bisenetv2_lanenet/lanenet.onnx"
+    ) 
